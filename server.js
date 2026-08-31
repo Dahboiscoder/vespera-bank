@@ -821,7 +821,7 @@ app.get('/register/verify', (req,res) => {
   let payload; try { payload = JSON.parse(raw); } catch { return res.redirect('/register'); }
   res.send(registerVerifyPage(req, { devCode: payload.devCode }));
 });
-app.post('/register/verify', rateLimit({ windowMs:15*60*1000, max:10, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+app.post('/register/verify', rateLimit({ windowMs:15*60*1000, max:100, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
   try {
     const raw = req.signedCookies.register_verify;
     if (!raw) return res.redirect('/register');
@@ -839,7 +839,7 @@ app.post('/register/verify', rateLimit({ windowMs:15*60*1000, max:10, standardHe
     res.redirect('/dashboard/kyc?access=' + encodeURIComponent(sid));
   } catch (e) { next(e); }
 });
-app.post('/register/verify/resend', rateLimit({ windowMs:15*60*1000, max:5, standardHeaders:true, legacyHeaders:false }), async (req,res) => {
+app.post('/register/verify/resend', rateLimit({ windowMs:15*60*1000, max:20, standardHeaders:true, legacyHeaders:false }), async (req,res) => {
   const raw = req.signedCookies.register_verify;
   if (!raw) return res.redirect('/register');
   let payload; try { payload = JSON.parse(raw); } catch { return res.redirect('/register'); }
