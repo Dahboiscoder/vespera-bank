@@ -187,6 +187,8 @@ async function initDb() {
   CREATE TABLE IF NOT EXISTS referrals (id TEXT PRIMARY KEY, referrer_user_id TEXT REFERENCES users(id) ON DELETE CASCADE, referred_user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'pending', reward_amount NUMERIC(18,2) NOT NULL DEFAULT 10, created_at TEXT NOT NULL, completed_at TEXT);
   CREATE INDEX IF NOT EXISTS referrals_referrer_idx ON referrals(referrer_user_id, status);
   CREATE TABLE IF NOT EXISTS grant_applications (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, program TEXT NOT NULL, amount_requested NUMERIC(18,2) NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', rejection_reason TEXT, reviewed_at TEXT, reviewed_by TEXT REFERENCES admin_users(id), created_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS loan_payments (id TEXT PRIMARY KEY, loan_id TEXT REFERENCES loans(id) ON DELETE CASCADE, installment_number INTEGER NOT NULL, due_date TEXT NOT NULL, amount_due NUMERIC(18,2) NOT NULL, principal_portion NUMERIC(18,2) NOT NULL, interest_portion NUMERIC(18,2) NOT NULL, status TEXT NOT NULL DEFAULT 'scheduled', paid_at TEXT, transaction_id TEXT, recorded_by TEXT, created_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS loan_payments_loan_idx ON loan_payments(loan_id, installment_number);
   CREATE INDEX IF NOT EXISTS grant_applications_user_idx ON grant_applications(user_id, status);
   `);
   await ensureColumn('users', 'phone', 'TEXT');
@@ -260,6 +262,9 @@ async function initDb() {
   await ensureColumn('loans', 'reviewed_at', 'TEXT');
   await ensureColumn('loans', 'reviewed_by', 'TEXT');
   await ensureColumn('loans', 'rejection_reason', 'TEXT');
+  await ensureColumn('loans', 'outstanding_principal', 'NUMERIC(18,2)');
+  await ensureColumn('loans', 'account_id', 'TEXT REFERENCES accounts(id)');
+  await ensureColumn('loans', 'disbursed_at', 'TEXT');
   await ensureColumn('support_conversations', 'mode', "TEXT NOT NULL DEFAULT 'ai'");
   await ensureColumn('support_conversations', 'assigned_agent_id', 'TEXT REFERENCES admin_users(id)');
   await ensureColumn('support_conversations', 'priority', "TEXT NOT NULL DEFAULT 'normal'");
@@ -1258,7 +1263,24 @@ app.post('/dashboard/transfers/submit', requireCustomer, rateLimit({ windowMs:15
     res.redirect(withAccess(req, `/dashboard/transfers/${id}`));
   } catch(e){ res.status(400).send(customerShell('Transfer unavailable', `<section class="panel state error"><h1>Transfer not submitted</h1><p>${esc(e.message)}</p><a class="btn" href="${withAccess(req,'/dashboard/transfers')}">Back to Transfers</a></section>`, req)); }
 });
-app.get('/dashboard/transfers/history', requireCustomer, async (req,res)=>{ const rows=(await q('SELECT * FROM transfers WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100',[req.user.id])).rows; res.send(customerShell('Transfer History', `<h1>Transfer History</h1>${transferNav(req)}${req.query.created?'<p class="notice">Transfer saved. It has not been sent unless a configured payment provider confirms processing.</p>':''}<section class="panel">${rows.length?transferTable(rows,req,{admin:false}):'<p class="empty">No transfers yet.</p>'}</section>`, req)); });
+app.get('/dashboard/transfers/history', requireCustomer, async (req,res)=>{
+  const qv = String(req.query.q||'').trim(); const type = String(req.query.type||''); const status = String(req.query.status||''); const from = String(req.query.from||''); const to = String(req.query.to||'');
+  const page = Math.max(1, Number(req.query.page||1)); const limit = 25; const offset = (page-1)*limit;
+  const where = ['user_id=$1']; const params = [req.user.id];
+  if (qv) { params.push(`%${qv}%`, `%${qv}%`); where.push(`(lower(reference) LIKE lower($${params.length-1}) OR lower(recipient_name) LIKE lower($${params.length}))`); }
+  if (type) { params.push(type); where.push(`transfer_type=$${params.length}`); }
+  if (status) { params.push(status); where.push(`status=$${params.length}`); }
+  if (from) { params.push(new Date(from).toISOString()); where.push(`created_at>=$${params.length}`); }
+  if (to) { params.push(new Date(to).toISOString()); where.push(`created_at<=$${params.length}`); }
+  const rows = (await q(`SELECT * FROM transfers WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`, params)).rows;
+  const TRANSFER_TYPES = ['SEPA','Wire','Internal','Deposit','Withdrawal'];
+  const TRANSFER_STATUSES = ['Draft','Pending','Compliance Review','Processing','Completed','Rejected','Failed','Cancelled','Returned','On Hold','Review Requested'];
+  const filterForm = `<form class="inline" method="get">${hiddenAccess(req)}<input name="q" value="${esc(qv)}" placeholder="Search reference or recipient"><select name="type"><option value="">All methods</option>${TRANSFER_TYPES.map(t=>`<option ${type===t?'selected':''}>${t}</option>`).join('')}</select><select name="status"><option value="">All statuses</option>${TRANSFER_STATUSES.map(s=>`<option ${status===s?'selected':''}>${s}</option>`).join('')}</select><label>From<input type="date" name="from" value="${esc(from)}"></label><label>To<input type="date" name="to" value="${esc(to)}"></label><button class="btn">Filter</button></form>`;
+  const carryQs = new URLSearchParams(Object.entries(req.query).filter(([k])=>!['page','access','_access'].includes(k))).toString();
+  const pageUrl = p => withAccess(req, '/dashboard/transfers/history' + (carryQs?'?'+carryQs+'&':'?') + 'page=' + p);
+  const hasFilters = qv || type || status || from || to;
+  res.send(customerShell('Transfer History', `<h1>Transfer History</h1>${transferNav(req)}${req.query.created?'<p class="notice">Transfer saved. It has not been sent unless a configured payment provider confirms processing.</p>':''}<section class="panel"><h2>Filters</h2>${filterForm}</section><section class="panel">${rows.length?transferTable(rows,req,{admin:false}):`<p class="empty">${hasFilters?'No transfers match these filters.':'No transfers yet.'}</p>`}<div class="pagination"><a class="btn ghost" href="${pageUrl(Math.max(1,page-1))}">Previous</a><span>Page ${page}</span>${rows.length===limit?`<a class="btn ghost" href="${pageUrl(page+1)}">Next</a>`:''}</div></section>`, req));
+});
 app.get('/dashboard/transfers/:id', requireCustomer, async (req,res)=>{
   const t = await one('SELECT tr.*, u.name user_name, u.email user_email FROM transfers tr JOIN users u ON u.id=tr.user_id WHERE tr.id=$1 AND tr.user_id=$2', [req.params.id, req.user.id]);
   if (!t) return res.status(404).send(customerShell('Not found', '<section class="panel state error"><h1>Not found</h1><p>This transfer could not be found.</p><a class="btn" href="'+withAccess(req,'/dashboard/transfers/history')+'">Back to Transfer History</a></section>', req));
@@ -1785,12 +1807,12 @@ app.post('/dashboard/grants/apply', requireCustomer, async (req,res,next) => {
 });
 app.get('/dashboard/loans', requireCustomer, async (req,res) => {
   const products = (await q("SELECT * FROM financial_products WHERE category='Loans' AND status='enabled' ORDER BY name")).rows;
-  const myLoans = (await q('SELECT l.*, p.name product_name, p.rate FROM loans l JOIN financial_products p ON p.id=l.product_id WHERE l.user_id=$1 ORDER BY l.created_at DESC', [req.user.id])).rows;
+  const myLoans = (await q("SELECT l.*, p.name product_name, p.rate, (SELECT MIN(due_date) FROM loan_payments WHERE loan_id=l.id AND status='scheduled') next_payment_due FROM loans l JOIN financial_products p ON p.id=l.product_id WHERE l.user_id=$1 ORDER BY l.created_at DESC", [req.user.id])).rows;
   const pending = myLoans.filter(l=>l.status==='pending');
   const approved = myLoans.filter(l=>l.status==='approved');
   const totalBorrowed = approved.reduce((sum,l)=>sum+num(l.principal), 0);
   const stats = `<div class="cards-stats"><article><span>Applications</span><b>${myLoans.length}</b></article><article><span>Pending Review</span><b>${pending.length}</b></article><article><span>Total Borrowed</span><b>${money(totalBorrowed)}</b></article></div>`;
-  const list = myLoans.length ? `<section class="panel"><h2>Your Loans</h2><table><tr><th>Product</th><th>Principal</th><th>Term</th><th>Monthly Payment</th><th>Status</th><th>Submitted</th></tr>${myLoans.map(l=>`<tr><td>${esc(l.product_name)}</td><td>${money(l.principal)}</td><td>${l.term_months} mo</td><td>${money(l.monthly_payment)}</td><td>${loanBadge(l.status)}</td><td>${fmt(l.created_at)}</td></tr>`).join('')}</table></section>` : `<section class="panel empty-pro"><h3>No loan applications yet</h3><p>Apply for a loan below to get started.</p></section>`;
+  const list = myLoans.length ? `<section class="panel"><h2>Your Loans</h2><table><tr><th>Product</th><th>Principal</th><th>Term</th><th>Monthly Payment</th><th>Outstanding</th><th>Status</th><th>Submitted</th><th></th></tr>${myLoans.map(l=>`<tr><td>${esc(l.product_name)}</td><td>${money(l.principal)}</td><td>${l.term_months} mo</td><td>${money(l.monthly_payment)}</td><td>${l.status==='approved'?money(l.outstanding_principal):'—'}</td><td>${loanBadge(l.status)} ${loanRepaymentBadge(l)}</td><td>${fmt(l.created_at)}</td><td><a class="btn small ghost" href="${withAccess(req,`/dashboard/loans/${l.id}`)}">View</a></td></tr>`).join('')}</table></section>` : `<section class="panel empty-pro"><h3>No loan applications yet</h3><p>Apply for a loan below to get started.</p></section>`;
   const applyForm = pending.length ? `<section class="panel"><h2>Apply for a Loan</h2><p class="notice">You already have a loan application pending review.</p></section>` : `<section class="panel"><h2>Apply for a Loan</h2><form class="inline" method="post" action="${withAccess(req,'/dashboard/loans/apply')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Loan Product<select name="productId">${products.map(p=>`<option value="${p.id}">${esc(p.name)} — ${p.rate}% APR (${money(p.min_amount)}–${money(p.max_amount)})</option>`).join('')}</select></label><label>Amount Requested<input name="principal" type="number" min="1" step="0.01" value="1000" required></label><label>Term<select name="termMonths"><option value="12">12 months</option><option value="24">24 months</option><option value="36">36 months</option><option value="60">60 months</option></select></label><label>Purpose<input name="purpose" placeholder="What will this loan be used for?" required></label><button class="btn">Submit Application</button></form></section>`;
   res.send(customerShell('Loans', `<section class="page-head"><h2>Loans</h2><p>Apply for a Vespera Bank loan product. Applications are reviewed by an authorized administrator.</p></section>${stats}${list}${applyForm}`, req));
 });
@@ -1811,6 +1833,28 @@ app.post('/dashboard/loans/apply', requireCustomer, async (req,res,next) => {
     if (e instanceof z.ZodError) return res.status(400).send(customerShell('Loans', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p><a class="btn" href="${withAccess(req,'/dashboard/loans')}">Back</a></section>`, req));
     next(e);
   }
+});
+app.get('/dashboard/loans/:id', requireCustomer, async (req,res) => {
+  const l = await one("SELECT l.*, p.name product_name, p.rate, (SELECT MIN(due_date) FROM loan_payments WHERE loan_id=l.id AND status='scheduled') next_payment_due FROM loans l JOIN financial_products p ON p.id=l.product_id WHERE l.id=$1 AND l.user_id=$2", [req.params.id, req.user.id]);
+  if (!l) return res.status(404).send(customerShell('Loans', '<section class="panel state error"><h1>Not found</h1><p>This loan could not be found.</p></section>', req));
+  let repayment = '';
+  if (l.status === 'approved') {
+    const schedule = (await q('SELECT * FROM loan_payments WHERE loan_id=$1 ORDER BY installment_number', [l.id])).rows;
+    const nextRow = schedule.find(p=>p.status==='scheduled');
+    const payForm = nextRow ? `<form class="inline" method="post" action="${withAccess(req,`/dashboard/loans/${l.id}/pay`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<p>Next payment: <b>${money(nextRow.amount_due)}</b> due ${fmt(nextRow.due_date)}</p><button class="btn">Make Payment Now</button></form>` : '<p class="notice">This loan is fully paid off.</p>';
+    repayment = `<section class="panel"><h2>Repayment</h2><div class="metric-grid"><article><span>Outstanding Principal</span><b>${money(l.outstanding_principal)}</b></article><article><span>Status</span><b>${loanRepaymentBadge(l)||'Active'}</b></article><article><span>Next Payment Due</span><b>${l.next_payment_due?fmt(l.next_payment_due):'—'}</b></article></div>${req.query.paid?'<p class="notice">Payment recorded. Thank you.</p>':''}${req.query.error?`<p class="error-text">${esc(req.query.error)}</p>`:''}${payForm}</section><section class="panel"><h2>Payment Schedule</h2>${schedule.length?loanScheduleTable(schedule):'<p class="empty">No schedule generated.</p>'}</section>`;
+  }
+  res.send(customerShell('Loan Detail', `<h1>${esc(l.product_name)}</h1><section class="panel"><div class="info-grid"><p><b>Principal</b><span>${money(l.principal)}</span></p><p><b>Rate (APR)</b><span>${esc(String(l.rate))}%</span></p><p><b>Term</b><span>${l.term_months} months</span></p><p><b>Monthly Payment</b><span>${money(l.monthly_payment)}</span></p><p><b>Purpose</b><span>${esc(l.purpose)}</span></p><p><b>Status</b><span>${loanBadge(l.status)}</span></p><p><b>Submitted</b><span>${fmt(l.created_at)}</span></p>${l.rejection_reason?`<p><b>Rejection Reason</b><span>${esc(l.rejection_reason)}</span></p>`:''}</div></section>${repayment}<p><a href="${withAccess(req,'/dashboard/loans')}">← Back to Loans</a></p>`, req));
+});
+app.post('/dashboard/loans/:id/pay', requireCustomer, async (req,res,next) => {
+  try {
+    const l = await one('SELECT * FROM loans WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!l || l.status !== 'approved') return res.status(404).send('Not found');
+    const result = await recordLoanPayment(l, req.user.id, 'customer');
+    if (!result.ok) return res.redirect(withAccess(req, `/dashboard/loans/${l.id}?error=${encodeURIComponent(result.message)}`));
+    await audit(req, 'LOAN_PAYMENT_MADE', 'loan', l.id, { installment:result.installment, remaining:result.remaining });
+    res.redirect(withAccess(req, `/dashboard/loans/${l.id}?paid=1`));
+  } catch (e) { try { await exec('ROLLBACK'); } catch { /* ignore */ } next(e); }
 });
 const pinSchema = z.object({ password:z.string().min(1), pin:z.string().regex(/^\d{4}$/,'PIN must be exactly 4 digits'), confirmPin:z.string() }).refine(v=>v.pin===v.confirmPin, { message:'PINs do not match' });
 app.post('/dashboard/security/pin', requireCustomer, async (req,res,next) => {
@@ -2994,16 +3038,73 @@ function loanMonthlyPayment(principal, ratePct, termMonths) {
   if (monthlyRate === 0) return num(principal) / termMonths;
   return num(principal) * (monthlyRate * Math.pow(1 + monthlyRate, termMonths)) / (Math.pow(1 + monthlyRate, termMonths) - 1);
 }
+async function generateLoanSchedule(loanId, principal, ratePct, termMonths, startDate) {
+  const monthlyRate = num(ratePct) / 100 / 12;
+  const payment = loanMonthlyPayment(principal, ratePct, termMonths);
+  let remaining = toCents(principal);
+  for (let i = 1; i <= termMonths; i++) {
+    const interestCents = Math.round(remaining * monthlyRate);
+    let principalCents = toCents(payment) - interestCents;
+    if (i === termMonths || principalCents > remaining) principalCents = remaining;
+    remaining -= principalCents;
+    const due = new Date(startDate); due.setMonth(due.getMonth() + i);
+    await q('INSERT INTO loan_payments (id,loan_id,installment_number,due_date,amount_due,principal_portion,interest_portion,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [uid(), loanId, i, due.toISOString(), fromCents(principalCents + interestCents), fromCents(principalCents), fromCents(interestCents), 'scheduled', nowIso()]);
+  }
+}
+function loanRepaymentBadge(loan) {
+  if (loan.status !== 'approved') return '';
+  if (num(loan.outstanding_principal) <= 0) return '<span class="status completed">Paid Off</span>';
+  if (loan.next_payment_due && new Date(loan.next_payment_due) < new Date()) return '<span class="status failed">Past Due</span>';
+  return '<span class="status completed">Active</span>';
+}
+async function recordLoanPayment(loan, initiatedBy, initiatorType) {
+  const next = await one("SELECT * FROM loan_payments WHERE loan_id=$1 AND status='scheduled' ORDER BY installment_number ASC LIMIT 1", [loan.id]);
+  if (!next) return { ok:false, message:'This loan has no remaining scheduled payments.' };
+  const account = await one('SELECT * FROM accounts WHERE id=$1', [loan.account_id]);
+  if (!account) return { ok:false, message:'No linked account was found for this loan.' };
+  const amountCents = toCents(next.amount_due);
+  if (toCents(account.balance) < amountCents) return { ok:false, message:'Insufficient funds in the linked account to make this payment.' };
+  const txId = uid();
+  await exec('BEGIN');
+  await q('UPDATE accounts SET balance=balance-$1 WHERE id=$2', [next.amount_due, account.id]);
+  await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [txId, account.id, 'Loan Payment', `Loan payment — installment ${next.installment_number}`, -Math.abs(next.amount_due), account.currency, nowIso(), 'completed', 'LOAN_PAYMENT']);
+  await q("UPDATE loan_payments SET status='paid', paid_at=$1, transaction_id=$2, recorded_by=$3 WHERE id=$4", [nowIso(), txId, initiatedBy, next.id]);
+  const newOutstanding = Math.max(0, num(loan.outstanding_principal) - num(next.principal_portion));
+  await q('UPDATE loans SET outstanding_principal=$1 WHERE id=$2', [newOutstanding, loan.id]);
+  await exec('COMMIT');
+  await q('INSERT INTO notifications VALUES ($1,$2,$3,$4,$5,$6)', [uid(), loan.user_id, 'Loan payment recorded', `A payment of ${money(next.amount_due)} was applied to your loan (installment ${next.installment_number}).${newOutstanding<=0?' Your loan is now fully paid off.':''}`, 'unread', nowIso()]);
+  return { ok:true, installment:next.installment_number, remaining:newOutstanding };
+}
 app.get('/admin/loans', requireAdmin, requireAdminPerm('loans.view'), async (req,res)=>{
   const status = ['pending','approved','rejected'].includes(req.query.status) ? req.query.status : '';
-  const loans = (await q(`SELECT l.*, u.email, u.name, p.name product_name, p.rate FROM loans l JOIN users u ON u.id=l.user_id JOIN financial_products p ON p.id=l.product_id ${status?'WHERE l.status=$1':''} ORDER BY l.created_at DESC LIMIT 100`, status?[status]:[])).rows;
+  const loans = (await q(`SELECT l.*, u.email, u.name, p.name product_name, p.rate, (SELECT MIN(due_date) FROM loan_payments WHERE loan_id=l.id AND status='scheduled') next_payment_due FROM loans l JOIN users u ON u.id=l.user_id JOIN financial_products p ON p.id=l.product_id ${status?'WHERE l.status=$1':''} ORDER BY l.created_at DESC LIMIT 100`, status?[status]:[])).rows;
   res.send(adminShell('Loans', `<section class="page-head"><h1>Loans</h1><p>Customer loan applications and disbursement status.</p></section><section class="panel"><form class="search"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><select name="status" onchange="this.form.submit()"><option value="">All statuses</option>${['pending','approved','rejected'].map(x=>`<option value="${x}" ${status===x?'selected':''}>${x}</option>`).join('')}</select></form></section><section class="panel">${loans.length?`<table><tr><th>User</th><th>Product</th><th>Principal</th><th>Term</th><th>Status</th><th>Submitted</th><th>Actions</th></tr>${loans.map(l=>`<tr><td>${esc(l.name)}<br><small>${esc(l.email)}</small></td><td>${esc(l.product_name)}</td><td>${money(l.principal)}</td><td>${l.term_months} mo</td><td>${loanBadge(l.status)}</td><td>${fmt(l.created_at)}</td><td>${req.admin.permissions.includes('loans.manage')?`<a class="btn small" href="${withAdminAccess(req, `/admin/loans/${l.id}`)}">${l.status==='pending'?'Review':'View'}</a>`:''}</td></tr>`).join('')}</table>`:'<div class="empty-pro"><h3>No loan applications yet</h3><p>Applications will appear here once customers apply for a loan.</p></div>'}</section>`, req));
 });
+function loanScheduleTable(rows) {
+  return `<table><tr><th>#</th><th>Due Date</th><th>Amount</th><th>Principal</th><th>Interest</th><th>Status</th><th>Paid</th></tr>${rows.map(p=>`<tr><td>${p.installment_number}</td><td>${fmt(p.due_date)}</td><td>${money(p.amount_due)}</td><td>${money(p.principal_portion)}</td><td>${money(p.interest_portion)}</td><td><span class="status ${p.status==='paid'?'completed':new Date(p.due_date)<new Date()?'failed':''}">${esc(p.status==='paid'?'Paid':new Date(p.due_date)<new Date()?'Past Due':'Scheduled')}</span></td><td>${p.paid_at?fmt(p.paid_at):'—'}</td></tr>`).join('')}</table>`;
+}
 app.get('/admin/loans/:id', requireAdmin, requireAdminPerm('loans.view'), async (req,res)=>{
-  const l = await one('SELECT l.*, u.email, u.name, p.name product_name, p.rate FROM loans l JOIN users u ON u.id=l.user_id JOIN financial_products p ON p.id=l.product_id WHERE l.id=$1', [req.params.id]);
+  const l = await one("SELECT l.*, u.email, u.name, p.name product_name, p.rate, (SELECT MIN(due_date) FROM loan_payments WHERE loan_id=l.id AND status='scheduled') next_payment_due FROM loans l JOIN users u ON u.id=l.user_id JOIN financial_products p ON p.id=l.product_id WHERE l.id=$1", [req.params.id]);
   if (!l) return res.status(404).send('Not found');
   const decision = l.status==='pending' && req.admin.permissions.includes('loans.manage') ? `<section class="panel"><h2>Decision</h2><form class="inline" method="post" action="${withAdminAccess(req, `/admin/loans/${l.id}/action`)}"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<select name="action"><option value="approve">Approve</option><option value="reject">Reject</option></select><input name="reason" placeholder="Reason (required to reject)"><label class="check"><input name="confirm" value="YES" type="checkbox" required> Confirm</label><button class="btn">Submit Decision</button></form></section>` : '';
-  res.send(adminShell('Loan Application', `<h1>Loan Application</h1><section class="panel"><div class="info-grid"><p><b>User</b><span>${esc(l.name)} (${esc(l.email)})</span></p><p><b>Product</b><span>${esc(l.product_name)}</span></p><p><b>Principal</b><span>${money(l.principal)}</span></p><p><b>Rate (APR)</b><span>${esc(String(l.rate))}%</span></p><p><b>Term</b><span>${l.term_months} months</span></p><p><b>Estimated Monthly Payment</b><span>${money(loanMonthlyPayment(l.principal, l.rate, l.term_months))}</span></p><p><b>Purpose</b><span>${esc(l.purpose)}</span></p><p><b>Status</b><span>${loanBadge(l.status)}</span></p><p><b>Submitted</b><span>${fmt(l.created_at)}</span></p>${l.reviewed_at?`<p><b>Reviewed</b><span>${fmt(l.reviewed_at)}</span></p>`:''}${l.rejection_reason?`<p><b>Rejection Reason</b><span>${esc(l.rejection_reason)}</span></p>`:''}</div></section>${decision}`, req));
+  let repayment = '';
+  if (l.status === 'approved') {
+    const schedule = (await q('SELECT * FROM loan_payments WHERE loan_id=$1 ORDER BY installment_number', [l.id])).rows;
+    const recordForm = num(l.outstanding_principal) > 0 && req.admin.permissions.includes('loans.manage') ? `<form class="inline" method="post" action="${withAdminAccess(req, `/admin/loans/${l.id}/record-payment`)}"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<label class="check"><input name="confirm" value="YES" type="checkbox" required> Confirm next installment was received</label><button class="btn">Record Next Payment</button></form>` : '';
+    repayment = `<section class="panel"><h2>Repayment</h2><div class="metric-grid"><article><span>Outstanding Principal</span><b>${money(l.outstanding_principal)}</b></article><article><span>Status</span><b>${loanRepaymentBadge(l)||'Active'}</b></article><article><span>Next Payment Due</span><b>${l.next_payment_due?fmt(l.next_payment_due):'—'}</b></article></div>${recordForm}</section><section class="panel"><h2>Payment Schedule</h2>${schedule.length?loanScheduleTable(schedule):'<p class="empty">No schedule generated.</p>'}</section>`;
+  }
+  res.send(adminShell('Loan Application', `<h1>Loan Application</h1><section class="panel"><div class="info-grid"><p><b>User</b><span>${esc(l.name)} (${esc(l.email)})</span></p><p><b>Product</b><span>${esc(l.product_name)}</span></p><p><b>Principal</b><span>${money(l.principal)}</span></p><p><b>Rate (APR)</b><span>${esc(String(l.rate))}%</span></p><p><b>Term</b><span>${l.term_months} months</span></p><p><b>Estimated Monthly Payment</b><span>${money(loanMonthlyPayment(l.principal, l.rate, l.term_months))}</span></p><p><b>Purpose</b><span>${esc(l.purpose)}</span></p><p><b>Status</b><span>${loanBadge(l.status)}</span></p><p><b>Submitted</b><span>${fmt(l.created_at)}</span></p>${l.reviewed_at?`<p><b>Reviewed</b><span>${fmt(l.reviewed_at)}</span></p>`:''}${l.rejection_reason?`<p><b>Rejection Reason</b><span>${esc(l.rejection_reason)}</span></p>`:''}</div></section>${decision}${repayment}`, req));
+});
+app.post('/admin/loans/:id/record-payment', requireAdmin, requireAdminPerm('loans.manage'), async (req,res,next) => {
+  try {
+    if (req.body.confirm !== 'YES') return res.status(400).send('Confirmation required');
+    const l = await one('SELECT * FROM loans WHERE id=$1', [req.params.id]);
+    if (!l || l.status !== 'approved') return res.status(400).send('This loan is not active');
+    const result = await recordLoanPayment(l, req.admin.id, 'admin');
+    if (!result.ok) return res.status(400).send(adminShell('Payment failed', `<section class="panel state error"><h1>Payment could not be recorded</h1><p>${esc(result.message)}</p></section>`, req));
+    await audit(req, 'LOAN_PAYMENT_RECORDED', 'loan', l.id, { installment:result.installment, remaining:result.remaining });
+    res.redirect(withAdminAccess(req, `/admin/loans/${l.id}`));
+  } catch (e) { try { await exec('ROLLBACK'); } catch { /* ignore */ } next(e); }
 });
 app.post('/admin/loans/:id/action', requireAdmin, requireAdminPerm('loans.manage'), async (req,res,next) => {
   try {
@@ -3020,8 +3121,10 @@ app.post('/admin/loans/:id/action', requireAdmin, requireAdminPerm('loans.manage
       await q('UPDATE accounts SET balance=balance+$1 WHERE id=$2', [l.principal, account.id]);
       const txId = uid();
       await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,created_by_admin_id,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [txId, account.id, 'Loan Disbursement', 'Loan disbursement', l.principal, account.currency, nowIso(), 'completed', req.admin.id, 'LOAN_DISBURSEMENT']);
-      await q("UPDATE loans SET status='approved', reviewed_at=$1, reviewed_by=$2 WHERE id=$3", [nowIso(), req.admin.id, l.id]);
+      const disbursedAt = nowIso();
+      await q("UPDATE loans SET status='approved', reviewed_at=$1, reviewed_by=$2, outstanding_principal=$3, account_id=$4, disbursed_at=$5 WHERE id=$6", [disbursedAt, req.admin.id, l.principal, account.id, disbursedAt, l.id]);
       await exec('COMMIT');
+      await generateLoanSchedule(l.id, l.principal, l.rate, l.term_months, new Date(disbursedAt));
       await q('INSERT INTO notifications VALUES ($1,$2,$3,$4,$5,$6)', [uid(), l.user_id, 'Loan approved', `Your loan application for ${money(l.principal)} was approved and disbursed.`, 'unread', nowIso()]);
       await audit(req, 'LOAN_APPROVED', 'loan', l.id, { principal:l.principal, targetTransactionId:txId });
     } else {
@@ -3293,7 +3396,13 @@ app.get('/admin/security', requireAdmin, requireAdminPerm('security.manage'), (r
 async function simpleAdmin(req,res,table,title) { const rows=(await q(`SELECT * FROM ${table} LIMIT 100`)).rows; res.send(adminShell(title, `<h1>${title}</h1><pre>${esc(JSON.stringify(rows,null,2))}</pre>`, req)); }
 app.get('/admin/products', requireAdmin, requireAdminPerm('products.manage'), (req,res)=>simpleAdmin(req,res,'financial_products','Products'));
 
-app.use((err, req, res, _next) => { console.error(err); const body = `<section class="panel state error"><h1>Something went wrong</h1><p>${esc(err.message || 'Unexpected error')}</p></section>`; if (req.originalUrl.startsWith('/admin') && req.admin) return res.status(500).send(adminShell('Error', body, req)); res.status(500).send(publicPage('Error', body, req)); });
+app.use((err, req, res, _next) => {
+  console.error(err);
+  const message = err.name === 'ZodError' ? 'Please check the information you entered and try again.' : "We couldn't complete this request. Please try again.";
+  const body = `<section class="panel state error"><h1>Something went wrong</h1><p>${esc(message)}</p></section>`;
+  if (req.originalUrl.startsWith('/admin') && req.admin) return res.status(500).send(adminShell('Error', body, req));
+  res.status(500).send(publicPage('Error', body, req));
+});
 
 await initDb();
 app.listen(PORT, '0.0.0.0', () => console.log(`Vespera Bank upgraded app listening on ${PORT}`));
