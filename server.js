@@ -405,7 +405,7 @@ async function getAdmin(req) {
 }
 app.use(async (req, res, next) => { try { req.user = await getCustomer(req); req.admin = await getAdmin(req); res.locals.user = req.user; res.locals.admin = req.admin; next(); } catch (e) { next(e); } });
 const PENDING_ACCOUNT_ALLOWLIST_EXACT = ['/dashboard'];
-const PENDING_ACCOUNT_ALLOWLIST_PREFIX = ['/dashboard/kyc', '/dashboard/profile', '/dashboard/security', '/dashboard/settings', '/dashboard/accounts', '/dashboard/transactions', '/dashboard/notifications', '/dashboard/refer', '/dashboard/insights', '/dashboard/statements', '/support/chat'];
+const PENDING_ACCOUNT_ALLOWLIST_PREFIX = ['/dashboard/kyc', '/dashboard/profile', '/dashboard/security', '/dashboard/settings', '/dashboard/accounts', '/dashboard/transactions', '/dashboard/notifications', '/dashboard/refer', '/dashboard/insights', '/dashboard/statements', '/support', '/logout'];
 function pendingAccountAllowed(path) {
   if (PENDING_ACCOUNT_ALLOWLIST_EXACT.includes(path)) return true;
   return PENDING_ACCOUNT_ALLOWLIST_PREFIX.some(p => path === p || path.startsWith(p + '/'));

@@ -5,14 +5,22 @@ const form = o => new URLSearchParams(o);
 // 1x1 px PNG
 const pngBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
-// Registration should hand the new customer straight to identity verification as the next step
-const email = `kyc${Date.now()}@example.test`;
-let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Kyc Flow',email,phone:'+15550007777',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
+// Registration requires email verification first, then hands the new customer
+// straight to identity verification as the next step
+const email = `kyc${Date.now()}@example.com`;
+let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({firstName:'Kyc',lastName:'Flow',email,phone:'+15550007777',accountType:'Checking',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
 assert.equal(r.status, 302);
-assert.ok(r.headers.get('location').startsWith('/dashboard/kyc?access='), r.headers.get('location'));
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
-console.log('Registration redirects straight to identity verification');
+assert.equal(r.headers.get('location'), '/register/verify');
+const { cookie, access } = await (async () => {
+  const rvCookie = (r.headers.get('set-cookie')||'').match(/register_verify=([^;]+)/)[1];
+  let vr = await fetch(base + '/register/verify', { headers:{cookie:`register_verify=${rvCookie}`} });
+  const code = (await vr.text()).match(/your code is: <b>(\d{6})<\/b>/)[1];
+  vr = await fetch(base + '/register/verify', { method:'POST', headers:{cookie:`register_verify=${rvCookie}`,'content-type':'application/x-www-form-urlencoded'}, body:form({code}), redirect:'manual' });
+  assert.ok(vr.headers.get('location').startsWith('/dashboard/kyc?access='), vr.headers.get('location'));
+  const sidMatch = (vr.headers.get('set-cookie')||'').match(/sid=([^;]+)/);
+  return { cookie: `sid=${sidMatch[1]}`, access: vr.headers.get('location').split('access=')[1] };
+})();
+console.log('Registration requires email verification, then redirects straight to identity verification');
 
 r = await fetch(base + `/dashboard/kyc?access=${access}`, { headers:{cookie} });
 let html = await r.text();

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerAndVerify } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
@@ -19,19 +20,28 @@ assert.ok(html.includes('Please sign in to access your dashboard.'));
 assert.ok(html.includes('name="next" value="/dashboard"'));
 
 // Failed login stays on POST /login response and shows exact generic error
-r = await fetch(base + '/login', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({email:'nobody@example.test',password:'WrongPass#1'}), redirect:'manual' });
+r = await fetch(base + '/login', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({email:'nobody@example.com',password:'WrongPass#1'}), redirect:'manual' });
 html = await r.text();
 assert.equal(r.status, 401);
 assert.ok(html.includes('Incorrect email or password.'));
 assert.ok(!r.headers.get('location'));
 
-// Registration creates account, authenticated session, $0.00 dashboard
-const email = `nav${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Navigation User', email, phone:'+15551231234', password:'Password#2026', confirmPassword:'Password#2026'}), redirect:'manual' });
+// Registration requires email verification before any session exists, then
+// lands on the (allowlisted, pre-KYC-approval) $0.00 dashboard overview
+const email = `nav${Date.now()}@example.com`;
+r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({firstName:'Navigation', lastName:'User', email, phone:'+15551231234', accountType:'Checking', password:'Password#2026', confirmPassword:'Password#2026'}), redirect:'manual' });
 assert.equal(r.status, 302);
-assert.ok(r.headers.get('location').startsWith('/dashboard'));
-const customerCookie = r.headers.get('set-cookie');
-assert.ok(customerCookie.includes('sid='));
+assert.equal(r.headers.get('location'), '/register/verify');
+assert.ok(!(r.headers.get('set-cookie')||'').includes('sid='), 'no session should exist before the email code is verified');
+const rvCookie = (r.headers.get('set-cookie')||'').match(/register_verify=([^;]+)/)[1];
+r = await fetch(base + '/register/verify', { headers:{cookie:`register_verify=${rvCookie}`} });
+const code = (await r.text()).match(/your code is: <b>(\d{6})<\/b>/)[1];
+r = await fetch(base + '/register/verify', { method:'POST', headers:{cookie:`register_verify=${rvCookie}`,'content-type':'application/x-www-form-urlencoded'}, body:form({code}), redirect:'manual' });
+assert.equal(r.status, 302);
+assert.match(r.headers.get('location'), /^\/dashboard\/kyc\?access=/);
+const sidMatch = (r.headers.get('set-cookie')||'').match(/sid=([^;]+)/);
+assert.ok(sidMatch, 'expected a sid cookie among the Set-Cookie headers');
+const customerCookie = `sid=${sidMatch[1]}`;
 r = await fetch(base + '/dashboard', { headers:{cookie:customerCookie} });
 html = await r.text();
 assert.equal(r.status, 200);
@@ -44,10 +54,12 @@ assert.equal(r.status, 302);
 assert.ok(r.headers.get('location').startsWith('/dashboard'));
 const loginCookie = r.headers.get('set-cookie');
 
-// A valid /dashboard/... next target is honored (e.g. an emailed receipt link while logged out)
-r = await fetch(base + '/login', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({email, password:'Password#2026', next:'/dashboard/transfers/history'}), redirect:'manual' });
+// A valid /dashboard/... next target is honored (e.g. an emailed link while logged out).
+// Uses /dashboard/security since this account hasn't completed KYC approval and every
+// other dashboard route redirects there until it does -- unrelated to the next= mechanic itself.
+r = await fetch(base + '/login', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({email, password:'Password#2026', next:'/dashboard/security'}), redirect:'manual' });
 assert.equal(r.status, 302);
-assert.ok(r.headers.get('location').startsWith('/dashboard/transfers/history?access='), r.headers.get('location'));
+assert.ok(r.headers.get('location').startsWith('/dashboard/security?access='), r.headers.get('location'));
 
 // HTTPS preview/iframe requests must receive SameSite=None; Secure cookies so login persists in Arena preview
 r = await fetch(base + '/login', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded','x-forwarded-proto':'https'}, body:form({email, password:'Password#2026'}), redirect:'manual' });
