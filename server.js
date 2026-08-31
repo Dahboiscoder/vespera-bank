@@ -344,6 +344,9 @@ async function seedData(adminRoleId, custRoleId) {
   }
   let account = await one('SELECT id FROM accounts WHERE user_id=$1 LIMIT 1', [sampleId]);
   if (!account) await q('INSERT INTO accounts (id,user_id,account_no,type,currency,balance,status,iban) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), sampleId, accountNo(), 'Everyday Account', 'USD', 0, 'active', generateIban()]);
+  await q('UPDATE users SET email_verified_at=COALESCE(email_verified_at,$1) WHERE id=$2', [nowIso(), sampleId]);
+  const sampleKyc = await one('SELECT status FROM kyc_submissions WHERE user_id=$1', [sampleId]);
+  if (!sampleKyc) await q('INSERT INTO kyc_submissions (user_id, full_legal_name, date_of_birth, id_type, id_number, address, status, submitted_at, reviewed_at, terms_accepted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [sampleId, 'David Sample', '1990-01-01', 'Passport', 'SAMPLE-DEMO-0001', '123 Demo Street, Sample City', 'approved', nowIso(), nowIso(), 'yes']);
   await ensureUserControls(sampleId);
   await ensureRates();
   await ensureProducts();
@@ -401,11 +404,18 @@ async function getAdmin(req) {
   return admin;
 }
 app.use(async (req, res, next) => { try { req.user = await getCustomer(req); req.admin = await getAdmin(req); res.locals.user = req.user; res.locals.admin = req.admin; next(); } catch (e) { next(e); } });
+const PENDING_ACCOUNT_ALLOWLIST = ['/dashboard/kyc', '/dashboard/profile', '/dashboard/security', '/dashboard/settings'];
+function pendingAccountAllowed(path) {
+  return PENDING_ACCOUNT_ALLOWLIST.some(p => path === p || path.startsWith(p + '/'));
+}
 function requireCustomer(req,res,next) {
   noStore(res);
   if (!req.user) {
     res.cookie('login_notice', 'Please sign in to access your dashboard.', noticeCookieOptions(req, 60*1000));
     return res.redirect('/login?next=' + encodeURIComponent(req.originalUrl));
+  }
+  if (req.user.kyc_status !== 'approved' && !pendingAccountAllowed(req.path)) {
+    return res.redirect(withAccess(req, '/dashboard/kyc'));
   }
   next();
 }
@@ -766,7 +776,7 @@ function registerPage(req, options={}) {
   const error = options.error || '';
   const v = options.values || {};
   const ref = String(v.ref ?? req.query.ref ?? '').slice(0, 40);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Create account | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="auth-page"><main class="auth-split"><section class="auth-visual"><a class="brand" href="/">${logo()}</a><div><span class="kicker">Open an account</span><h1>Start banking on your terms.</h1><p>Open a Vespera Bank account in minutes and manage everyday spending, savings, cards and transfers from one secure workspace.</p><div class="security-points"><span>$0 starting balance</span><span>Instant account access</span><span>Bank-grade security</span></div></div></section><section class="auth-panel"><div class="auth-card modern"><div class="brand mobile-brand">${logo()}</div><h2>Create your account</h2><p>New accounts start at exactly $0.00 and can be managed securely from your dashboard.</p>${ref?`<p class="notice">Referral code applied: <b>${esc(ref)}</b></p>`:''}${error ? `<p class="error-text">${esc(error)}</p>` : ''}<div class="form-callout"><i>◒</i><div><b>Instant approval</b><p>Your account is created immediately after you submit this form — no waiting period, no paperwork.</p></div></div><form method="post" action="/register">${ref?`<input type="hidden" name="ref" value="${esc(ref)}">`:''}<label>Full Name<input name="name" value="${esc(v.name||'')}" required autocomplete="name"></label><label>Email<input type="email" name="email" value="${esc(v.email||'')}" required autocomplete="email"></label><label>Phone<input name="phone" value="${esc(v.phone||'')}" required autocomplete="tel"></label><label>Password<input type="password" name="password" required autocomplete="new-password"></label><label>Confirm Password<input type="password" name="confirmPassword" required autocomplete="new-password"></label><button class="btn wide">Create Account</button><div class="or"><span>OR</span></div><a class="btn secondary wide google-oauth-link" href="/auth/google">Continue with Google</a></form><p class="center small-copy">Already registered? <a href="/login">Sign in</a></p><div class="legal-links"><a href="/security">Security Center</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></div></div></section></main><script src="/assets/app.js"></script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Create account | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="auth-page"><main class="auth-split"><section class="auth-visual"><a class="brand" href="/">${logo()}</a><div><span class="kicker">Open an account</span><h1>Start banking on your terms.</h1><p>Open a Vespera Bank account in minutes and manage everyday spending, savings, cards and transfers from one secure workspace.</p><div class="security-points"><span>$0 starting balance</span><span>Email &amp; identity verification</span><span>Bank-grade security</span></div></div></section><section class="auth-panel"><div class="auth-card modern"><div class="brand mobile-brand">${logo()}</div><h2>Create your account</h2><p>New accounts start at exactly $0.00 and can be managed securely from your dashboard once verified.</p>${ref?`<p class="notice">Referral code applied: <b>${esc(ref)}</b></p>`:''}${error ? `<p class="error-text">${esc(error)}</p>` : ''}<div class="form-callout"><i>◒</i><div><b>Quick to start, verified before use</b><p>We'll email you a 6-digit code right after you submit this form. Your account is then reviewed by our team before it's activated.</p></div></div><form method="post" action="/register">${ref?`<input type="hidden" name="ref" value="${esc(ref)}">`:''}<label>Full Name<input name="name" value="${esc(v.name||'')}" required autocomplete="name"></label><label>Email<input type="email" name="email" value="${esc(v.email||'')}" required autocomplete="email"></label><label>Phone<input name="phone" value="${esc(v.phone||'')}" required autocomplete="tel"></label><label>Password<input type="password" name="password" required autocomplete="new-password"></label><label>Confirm Password<input type="password" name="confirmPassword" required autocomplete="new-password"></label><button class="btn wide">Create Account</button><div class="or"><span>OR</span></div><a class="btn secondary wide google-oauth-link" href="/auth/google">Continue with Google</a></form><p class="center small-copy">Already registered? <a href="/login">Sign in</a></p><div class="legal-links"><a href="/security">Security Center</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></div></div></section></main><script src="/assets/app.js"></script></body></html>`;
 }
 app.get('/register', (req,res) => res.send(registerPage(req)));
 const registerSchema = z.object({ name:z.string().min(2).max(120), email:z.string().email().max(160), phone:z.string().min(5).max(30), password:z.string().min(8).max(120), confirmPassword:z.string().min(8).max(120) }).refine(v => v.password === v.confirmPassword, { message:'Passwords must match' });
@@ -776,29 +786,66 @@ app.post('/register', async (req,res,next) => {
     const exists = await one('SELECT id FROM users WHERE email=$1', [normalizeLoginEmail(p.email)]);
     if (exists) return res.status(409).send(registerPage(req, { error:'Email already registered. Please sign in or use a different email address.', values:req.body }));
     const role = await one('SELECT id FROM roles WHERE name=$1', ['customer']);
-    const userId = uid(); const accountId = uid(); const sid = uid(); const csrf = csrfToken();
+    const userId = uid(); const accountId = uid();
     await exec('BEGIN');
     await q('INSERT INTO users (id, role_id, name, email, phone, password_hash, status, twofa_secret, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [userId, role.id, p.name, normalizeLoginEmail(p.email), p.phone, await bcrypt.hash(p.password, 12), 'enabled', null, nowIso()]);
     await q('INSERT INTO accounts (id,user_id,account_no,type,currency,balance,status,iban) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [accountId, userId, accountNo(), 'Everyday Account', 'USD', 0, 'active', generateIban()]);
     await q('INSERT INTO accounts (id,user_id,account_no,type,currency,balance,status,iban) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), userId, accountNo(), 'Savings Account', 'USD', 0, 'active', generateIban()]);
     await q('INSERT INTO notifications VALUES ($1,$2,$3,$4,$5,$6)', [uid(), userId, 'Welcome to Vespera Bank', 'Your account is active. Current balance: $0.00.', 'unread', nowIso()]);
     await ensureUserControls(userId);
-    await q('INSERT INTO sessions (id,user_id,csrf_token,expires_at,created_at,ip,user_agent) VALUES ($1,$2,$3,$4,$5,$6,$7)', [sid, userId, csrf, new Date(Date.now()+8*60*60*1000).toISOString(), nowIso(), req.ip || null, (req.get('user-agent')||'').slice(0,240)]);
     await exec('COMMIT');
-    res.cookie('sid', sid, sessionCookieOptions(req, 8*60*60*1000));
     await audit({ ...req, user:{id:userId}, admin:null }, 'register', 'user', userId, { email:normalizeLoginEmail(p.email), startingBalance:0 });
-    issueEmailVerification(userId, normalizeLoginEmail(p.email)).catch(()=>{});
     const refCode = String(req.body.ref || '').trim();
     if (refCode) {
       const referrer = await one('SELECT id FROM users WHERE referral_code=$1', [refCode]);
       if (referrer && referrer.id !== userId) await q('INSERT INTO referrals (id, referrer_user_id, referred_user_id, status, reward_amount, created_at) VALUES ($1,$2,$3,$4,$5,$6)', [uid(), referrer.id, userId, 'pending', REFERRAL_REWARD_AMOUNT, nowIso()]).catch(()=>{});
     }
-    res.redirect('/dashboard/kyc?access=' + encodeURIComponent(sid));
+    const regResult = await issueRegistrationCode(userId, normalizeLoginEmail(p.email));
+    res.cookie('register_verify', JSON.stringify({ userId, devCode: regResult.devCode || null }), oauthCookieOptions(req, 15*60*1000));
+    res.redirect('/register/verify');
   } catch (e) {
     try { await exec('ROLLBACK'); } catch { /* ignore */ }
     if (e instanceof z.ZodError) return res.status(400).send(registerPage(req, { error:e.issues.map(i=>i.message).join(' '), values:req.body }));
     next(e);
   }
+});
+app.get('/register/verify', (req,res) => {
+  const raw = req.signedCookies.register_verify;
+  if (!raw) return res.redirect('/register');
+  let payload; try { payload = JSON.parse(raw); } catch { return res.redirect('/register'); }
+  res.send(registerVerifyPage(req, { devCode: payload.devCode }));
+});
+app.post('/register/verify', rateLimit({ windowMs:15*60*1000, max:10, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const raw = req.signedCookies.register_verify;
+    if (!raw) return res.redirect('/register');
+    let payload; try { payload = JSON.parse(raw); } catch { return res.redirect('/register'); }
+    const result = await verifyRegistrationCode(payload.userId, req.body.code);
+    if (!result.ok) return res.status(400).send(registerVerifyPage(req, { error: result.message, devCode: payload.devCode }));
+    const user = await one('SELECT * FROM users WHERE id=$1', [payload.userId]);
+    if (!user) return res.redirect('/register');
+    await q('UPDATE users SET email_verified_at=$1 WHERE id=$2', [nowIso(), user.id]);
+    res.clearCookie('register_verify', clearCookieOptions(req));
+    const sid = uid(); const csrf = csrfToken();
+    await q('INSERT INTO sessions (id,user_id,csrf_token,expires_at,created_at,ip,user_agent) VALUES ($1,$2,$3,$4,$5,$6,$7)', [sid, user.id, csrf, new Date(Date.now()+8*60*60*1000).toISOString(), nowIso(), req.ip || null, (req.get('user-agent')||'').slice(0,240)]);
+    res.cookie('sid', sid, sessionCookieOptions(req, 8*60*60*1000));
+    await audit({ ...req, user:{id:user.id}, admin:null }, 'EMAIL_VERIFIED_REGISTRATION', 'user', user.id, {});
+    res.redirect('/dashboard/kyc?access=' + encodeURIComponent(sid));
+  } catch (e) { next(e); }
+});
+app.post('/register/verify/resend', rateLimit({ windowMs:15*60*1000, max:5, standardHeaders:true, legacyHeaders:false }), async (req,res) => {
+  const raw = req.signedCookies.register_verify;
+  if (!raw) return res.redirect('/register');
+  let payload; try { payload = JSON.parse(raw); } catch { return res.redirect('/register'); }
+  const existing = await latestRegistrationCode(payload.userId);
+  if (existing && Date.now() - new Date(existing.last_sent_at).getTime() < 60*1000) {
+    return res.status(429).send(registerVerifyPage(req, { error:'Please wait a moment before requesting another code.', devCode: payload.devCode }));
+  }
+  const user = await one('SELECT email FROM users WHERE id=$1', [payload.userId]);
+  if (!user) return res.redirect('/register');
+  const regResult = await issueRegistrationCode(payload.userId, user.email);
+  res.cookie('register_verify', JSON.stringify({ userId: payload.userId, devCode: regResult.devCode || null }), oauthCookieOptions(req, 15*60*1000));
+  res.send(registerVerifyPage(req, { resent:true, devCode: regResult.devCode }));
 });
 app.get('/verify-email/:token', async (req,res) => {
   const user = await one('SELECT id, email_verified_at, email_verify_sent_at FROM users WHERE email_verify_token=$1', [req.params.token]);
@@ -1091,6 +1138,31 @@ async function issueEmailVerification(userId, email) {
   await q('UPDATE users SET email_verify_token=$1, email_verify_sent_at=$2 WHERE id=$3', [token, nowIso(), userId]);
   const result = await emailService.sendEmailVerification(email, token);
   return { devLink: result.sent ? null : `${APP_URL}/verify-email/${token}` };
+}
+async function issueRegistrationCode(userId, email) {
+  const code = generateCode();
+  await q('INSERT INTO verification_codes (id,user_id,purpose,code_hash,context_hash,idempotency_key,attempts,max_attempts,status,expires_at,last_sent_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [uid(), userId, 'email_registration', hashCode(code), 'registration', userId, 0, 5, 'pending', new Date(Date.now()+10*60*1000).toISOString(), nowIso(), nowIso()]);
+  const result = await emailService.sendVerificationCode(email, code);
+  return { sent: result.sent, devCode: result.sent ? null : code };
+}
+async function latestRegistrationCode(userId) {
+  return one("SELECT * FROM verification_codes WHERE user_id=$1 AND purpose='email_registration' ORDER BY created_at DESC LIMIT 1", [userId]);
+}
+async function verifyRegistrationCode(userId, submittedCode) {
+  const row = await latestRegistrationCode(userId);
+  if (!row) return { ok:false, message:'No verification code was found. Please request a new one.' };
+  if (row.status === 'used') return { ok:true };
+  if (new Date(row.expires_at) < new Date()) return { ok:false, message:'This code has expired. Please request a new one.' };
+  if (row.attempts >= row.max_attempts) return { ok:false, message:'Too many incorrect attempts. Please request a new code.' };
+  const submitted = Buffer.from(hashCode(String(submittedCode||'').trim()));
+  const expected = Buffer.from(row.code_hash);
+  const matches = submitted.length === expected.length && crypto.timingSafeEqual(submitted, expected);
+  if (!matches) { await q('UPDATE verification_codes SET attempts=attempts+1 WHERE id=$1', [row.id]); return { ok:false, message:'Incorrect code.' }; }
+  await q("UPDATE verification_codes SET status='used', used_at=$1 WHERE id=$2", [nowIso(), row.id]);
+  return { ok:true };
+}
+function registerVerifyPage(req, { error='', devCode=null, resent=false } = {}) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Verify your email | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="auth-page"><main class="auth-split"><section class="auth-visual"><a class="brand" href="/">${logo()}</a><div><span class="kicker">Verify your email</span><h1>Check your inbox.</h1><p>We've sent a 6-digit verification code to your email address. Enter it below to continue opening your account.</p></div></section><section class="auth-panel"><div class="auth-card modern"><div class="brand mobile-brand">${logo()}</div><h2>Enter your code</h2>${resent?'<p class="notice">A new code was sent.</p>':''}${devCode?`<p class="notice">Email delivery is not configured on this server. For testing, your code is: <b>${esc(devCode)}</b></p>`:''}${error?`<p class="error-text">${esc(error)}</p>`:''}<form method="post" action="/register/verify"><label>6-digit code<input name="code" inputmode="numeric" maxlength="6" placeholder="123456" required autocomplete="one-time-code" autofocus></label><button class="btn wide">Verify and continue</button></form><form method="post" action="/register/verify/resend"><button class="btn small ghost">Resend code</button></form><p class="center small-copy"><a href="/register">Back to registration</a></p></div></section></main><script src="/assets/app.js"></script></body></html>`;
 }
 async function issueVerificationCode(req, d, idempotencyKey) {
   const code = generateCode();
