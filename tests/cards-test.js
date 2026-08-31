@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
+import { registerAndActivate } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
-const email = `cardcheck${Date.now()}@example.test`;
-let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Card Check',email,phone:'+15550009999',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const email = `cardcheck${Date.now()}@example.com`;
+const { cookie, access } = await registerAndActivate(base, { name:'Card Check', email, phone:'+15550009999', password:'Password#2026' });
 
-r = await fetch(base + `/dashboard/cards?access=${access}`, { headers:{cookie} });
+let r = await fetch(base + `/dashboard/cards?access=${access}`, { headers:{cookie} });
 let html = await r.text();
 assert.ok(html.includes('No Cards Yet'));
 assert.ok(html.includes('Virtual Cards Made Easy'));
@@ -63,9 +62,8 @@ console.log('Freeze works and toggles the UI');
 
 // Another customer cannot freeze someone else's card
 const other = await (async () => {
-  const otherEmail = `cardother${Date.now()}@example.test`;
-  const rr = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Other',email:otherEmail,phone:'+15550001111',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-  return { cookie:rr.headers.get('set-cookie'), access:rr.headers.get('location').split('access=')[1] };
+  const otherEmail = `cardother${Date.now()}@example.com`;
+  return await registerAndActivate(base, { name:'Other Person', email:otherEmail, phone:'+15550001111', password:'Password#2026' });
 })();
 r = await fetch(base + `/dashboard/cards?access=${other.access}`, { headers:{cookie:other.cookie} });
 html = await r.text();

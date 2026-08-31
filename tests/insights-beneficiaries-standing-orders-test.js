@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerAndActivate } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
@@ -8,10 +9,8 @@ const aAccess = ar.headers.get('location').split('admin_access=')[1];
 assert.ok(aAccess, 'admin should log in');
 
 async function registerCustomer(name) {
-  const email = `ibs_${Date.now()}_${Math.random().toString(36).slice(2)}@example.test`;
-  const r = await fetch(base+'/register',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({name,email,phone:'+15550001111',password:'Password#2026',confirmPassword:'Password#2026'}),redirect:'manual'});
-  const cookie = r.headers.get('set-cookie');
-  const access = r.headers.get('location').split('access=')[1];
+  const email = `ibs_${Date.now()}_${Math.random().toString(36).slice(2)}@example.com`;
+  const { cookie, access } = await registerAndActivate(base, { name, email, phone:'+15550001111', password:'Password#2026' });
   return { email, cookie, access };
 }
 async function setPin(u) {

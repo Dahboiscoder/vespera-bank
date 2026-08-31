@@ -6,8 +6,8 @@ let r = await fetch(base+'/admin/login',{method:'POST',headers:{'content-type':'
 const cookie = r.headers.get('set-cookie');
 const access = r.headers.get('location').split('admin_access=')[1];
 
-const email = `moneytest${Date.now()}@example.test`;
-await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Money Test',email,phone:'+15550006666',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
+const email = `moneytest${Date.now()}@example.com`;
+await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({firstName:'Money',lastName:'Test',email,phone:'+15550006666',accountType:'Checking',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
 
 r = await fetch(base+`/admin/balances?admin_access=${access}&q=${encodeURIComponent(email)}`, { headers:{cookie} });
 let html = await r.text();

@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
+import { registerAndActivate } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
 let r = await fetch(base+'/admin/login',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({email:'admin@novacapital.test',password:'Admin#2026!'}),redirect:'manual'});
 const aCookie = r.headers.get('set-cookie'); const aAccess = r.headers.get('location').split('admin_access=')[1];
 
-const email = `swapper${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Swap Test',email,phone:'+15550005555',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const email = `swapper${Date.now()}@example.com`;
+const { cookie, access } = await registerAndActivate(base, { name:'Swap Test', email, phone:'+15550005555', password:'Password#2026' });
 
 // Fund the account
 r = await fetch(base + `/admin/balances?admin_access=${aAccess}&q=${encodeURIComponent(email)}`, { headers:{cookie:aCookie} });

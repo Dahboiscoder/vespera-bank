@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerAndVerify } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 const crypto = await import('node:crypto');
@@ -20,13 +21,11 @@ function totpCodeAt(secret, counter) {
 }
 function currentTotp(secret) { return totpCodeAt(secret, Math.floor(Date.now()/30000)); }
 
-const email = `twofa${Date.now()}@example.test`;
+const email = `twofa${Date.now()}@example.com`;
 const password = 'Password#2026';
-let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Twofa Test',email,phone:'+15550001234',password,confirmPassword:password}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const { cookie, access } = await registerAndVerify(base, { name:'Twofa Test', email, phone:'+15550001234', password });
 
-r = await fetch(base + `/dashboard/security?access=${access}`, { headers:{cookie} });
+let r = await fetch(base + `/dashboard/security?access=${access}`, { headers:{cookie} });
 let html = await r.text();
 assert.ok(html.includes('Set Up 2FA'));
 assert.ok(!html.includes('Biometric'), 'fake Biometric badge should be gone');

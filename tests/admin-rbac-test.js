@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerAndVerify } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
@@ -11,11 +12,11 @@ assert.equal(r.status, 200, 'SUPER_ADMIN can access admin-users page');
 let html = await r.text();
 const csrf = html.match(/name="_csrf" value="([^"]+)/)[1];
 
-const viewerEmail = `viewer${Date.now()}@example.test`;
+const viewerEmail = `viewer${Date.now()}@example.com`;
 r = await fetch(base+'/admin/admin-users', { method:'POST', headers:{cookie:superCookie,'content-type':'application/x-www-form-urlencoded'}, body:form({_csrf:csrf,_admin_access:superAccess,name:'Viewer Test',email:viewerEmail,password:'ViewerPass#1',role:'VIEWER',confirm:'YES'}), redirect:'manual' });
 assert.equal(r.status, 302, 'viewer creation should redirect');
 
-const financeEmail = `finance${Date.now()}@example.test`;
+const financeEmail = `finance${Date.now()}@example.com`;
 r = await fetch(base+'/admin/admin-users', { method:'POST', headers:{cookie:superCookie,'content-type':'application/x-www-form-urlencoded'}, body:form({_csrf:csrf,_admin_access:superAccess,name:'Finance Test',email:financeEmail,password:'FinancePass#1',role:'FINANCE_ADMIN',confirm:'YES'}), redirect:'manual' });
 assert.equal(r.status, 302, 'finance admin creation should redirect');
 
@@ -46,9 +47,8 @@ r = await fetch(base+'/admin/dashboard', { redirect:'manual' });
 assert.equal(r.status, 302);
 assert.ok(r.headers.get('location').startsWith('/admin/login'), 'unauthenticated request redirected to admin login');
 
-const custEmail = `rbaccust${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'RBAC Cust',email:custEmail,phone:'+15550008888',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const custCookie = r.headers.get('set-cookie');
+const custEmail = `rbaccust${Date.now()}@example.com`;
+const { cookie: custCookie } = await registerAndVerify(base, { name:'RBAC Cust', email:custEmail, phone:'+15550008888', password:'Password#2026' });
 r = await fetch(base+'/admin/dashboard', { headers:{cookie:custCookie}, redirect:'manual' });
 assert.equal(r.status, 302, 'customer session cannot access any admin route');
 

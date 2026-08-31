@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
+import { registerAndActivate } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
-const email = `borrower${Date.now()}@example.test`;
-let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Borrower Test',email,phone:'+15550004444',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const email = `borrower${Date.now()}@example.com`;
+const { cookie, access } = await registerAndActivate(base, { name:'Borrower Test', email, phone:'+15550004444', password:'Password#2026' });
 
-r = await fetch(base + `/dashboard/loans?access=${access}`, { headers:{cookie} });
+let r = await fetch(base + `/dashboard/loans?access=${access}`, { headers:{cookie} });
 let html = await r.text();
 assert.ok(html.includes('No loan applications yet'));
 assert.ok(html.includes('Personal Loan'), 'seeded loan products should appear in the dropdown');

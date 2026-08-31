@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
+import { registerAndVerify } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
-const email = `supportcust${Date.now()}@example.test`;
-let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Chat Requester',email,phone:'+15550008888',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const email = `supportcust${Date.now()}@example.com`;
+const { cookie, access } = await registerAndVerify(base, { name:'Chat Requester', email, phone:'+15550008888', password:'Password#2026' });
 
-r = await fetch(base + `/support/chat?access=${access}`, { headers:{cookie} });
+let r = await fetch(base + `/support/chat?access=${access}`, { headers:{cookie} });
 let html = await r.text();
 assert.equal(r.status, 200);
 assert.ok(html.includes('AI Assistant') && html.includes('Talk to a Human') && html.includes('AI + Human'), 'all three support modes should be selectable');
@@ -29,9 +28,8 @@ console.log('Polling endpoint returns the conversation history');
 
 // Cross-customer isolation: another customer cannot poll this conversation
 const other = await (async () => {
-  const otherEmail = `supportother${Date.now()}@example.test`;
-  const rr = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Other',email:otherEmail,phone:'+15550001112',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-  return { cookie:rr.headers.get('set-cookie'), access:rr.headers.get('location').split('access=')[1] };
+  const otherEmail = `supportother${Date.now()}@example.com`;
+  return await registerAndVerify(base, { name:'Other Person', email:otherEmail, phone:'+15550001112', password:'Password#2026' });
 })();
 r = await fetch(base + `/support/chat/poll?conversationId=${conversationId}&since=${encodeURIComponent(new Date(0).toISOString())}`, { headers:{cookie:other.cookie} });
 assert.equal(r.status, 404, 'a different customer must not be able to poll someone else\'s conversation');
@@ -88,7 +86,7 @@ console.log('Human agent reply appears in the same AI + Human conversation');
 r = await fetch(base + `/admin/admin-users?admin_access=${aAccess}`, { headers:{cookie:aCookie} });
 html = await r.text();
 const auCsrf = html.match(/name="_csrf" value="([^"]+)/)[1];
-const viewerEmail = `viewer${Date.now()}@example.test`;
+const viewerEmail = `viewer${Date.now()}@example.com`;
 r = await fetch(base + '/admin/admin-users', { method:'POST', headers:{cookie:aCookie,'content-type':'application/x-www-form-urlencoded'}, body:form({_csrf:auCsrf,_admin_access:aAccess,name:'Viewer',email:viewerEmail,password:'ViewerPass#1',role:'VIEWER',confirm:'YES'}), redirect:'manual' });
 assert.equal(r.status, 302);
 r = await fetch(base + '/admin/login', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({email:viewerEmail,password:'ViewerPass#1'}), redirect:'manual' });

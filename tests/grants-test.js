@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
+import { registerAndActivate } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
-const email = `grantee${Date.now()}@example.test`;
-let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Grant Applicant',email,phone:'+15550003333',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const email = `grantee${Date.now()}@example.com`;
+const { cookie, access } = await registerAndActivate(base, { name:'Grant Applicant', email, phone:'+15550003333', password:'Password#2026' });
 
-r = await fetch(base + `/dashboard/grants?access=${access}`, { headers:{cookie} });
+let r = await fetch(base + `/dashboard/grants?access=${access}`, { headers:{cookie} });
 let html = await r.text();
 assert.ok(html.includes('No applications yet'));
 const csrf = html.match(/name="_csrf" value="([^"]+)/)[1];
@@ -36,7 +35,7 @@ const aCsrf = html.match(/name="_csrf" value="([^"]+)/)[1];
 r = await fetch(base + `/admin/admin-users?admin_access=${aAccess}`, { headers:{cookie:aCookie} });
 html = await r.text();
 const auCsrf = html.match(/name="_csrf" value="([^"]+)/)[1];
-const viewerEmail = `viewer${Date.now()}@example.test`;
+const viewerEmail = `viewer${Date.now()}@example.com`;
 r = await fetch(base + '/admin/admin-users', { method:'POST', headers:{cookie:aCookie,'content-type':'application/x-www-form-urlencoded'}, body:form({_csrf:auCsrf,_admin_access:aAccess,name:'Viewer',email:viewerEmail,password:'ViewerPass#1',role:'VIEWER',confirm:'YES'}), redirect:'manual' });
 assert.equal(r.status, 302);
 r = await fetch(base + '/admin/login', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({email:viewerEmail,password:'ViewerPass#1'}), redirect:'manual' });

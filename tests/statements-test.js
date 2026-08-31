@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
+import { registerAndVerify } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
 let r = await fetch(base+'/admin/login',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({email:'admin@novacapital.test',password:'Admin#2026!'}),redirect:'manual'});
 const aCookie = r.headers.get('set-cookie'); const aAccess = r.headers.get('location').split('admin_access=')[1];
 
-const email = `statement${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Statement Test',email,phone:'+15550006666',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const email = `statement${Date.now()}@example.com`;
+const { cookie, access } = await registerAndVerify(base, { name:'Statement Test', email, phone:'+15550006666', password:'Password#2026' });
 
 r = await fetch(base + `/admin/balances?admin_access=${aAccess}&q=${encodeURIComponent(email)}`, { headers:{cookie:aCookie} });
 let html = await r.text();
@@ -52,10 +51,8 @@ assert.ok(csv.includes('300.00'));
 console.log('CSV download returns a real, correctly-formatted statement file');
 
 // A different customer cannot view or download this account's statement
-const email2 = `otherstatement${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Other Person',email:email2,phone:'+15550007777',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie2 = r.headers.get('set-cookie');
-const access2 = r.headers.get('location').split('access=')[1];
+const email2 = `otherstatement${Date.now()}@example.com`;
+const { cookie: cookie2, access: access2 } = await registerAndVerify(base, { name:'Other Person', email:email2, phone:'+15550007777', password:'Password#2026' });
 r = await fetch(base + `/dashboard/statements?accountId=${myAccountId}&period=all_time&access=${access2}`, { headers:{cookie:cookie2} });
 html = await r.text();
 assert.ok(html.includes('Account not found'), 'another customer must not be able to view this account\'s statement');

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerAndActivate } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
@@ -17,10 +18,8 @@ async function fundCustomer(adminCookie, adminAccess, email) {
 let r = await fetch(base+'/admin/login',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({email:'admin@novacapital.test',password:'Admin#2026!'}),redirect:'manual'});
 const aCookie = r.headers.get('set-cookie'); const aAccess = r.headers.get('location').split('admin_access=')[1];
 
-const email = `pin${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Pin Flow',email,phone:'+15550001234',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const cookie = r.headers.get('set-cookie');
-const access = r.headers.get('location').split('access=')[1];
+const email = `pin${Date.now()}@example.com`;
+const { cookie, access } = await registerAndActivate(base, { name:'Pin Flow', email, phone:'+15550001234', password:'Password#2026' });
 await fundCustomer(aCookie, aAccess, email);
 
 // A transfer cannot even reach the confirmation screen without a transaction PIN set
@@ -69,10 +68,8 @@ assert.equal(r.status, 302);
 console.log('Correct PIN + OTP code succeeds');
 
 // Repeated wrong PINs lock the account out for a cooldown period
-const emailLock = `pinlock${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Pin Lock',email:emailLock,phone:'+15550005678',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const lockCookie = r.headers.get('set-cookie');
-const lockAccess = r.headers.get('location').split('access=')[1];
+const emailLock = `pinlock${Date.now()}@example.com`;
+const { cookie: lockCookie, access: lockAccess } = await registerAndActivate(base, { name:'Pin Lock', email:emailLock, phone:'+15550005678', password:'Password#2026' });
 await fundCustomer(aCookie, aAccess, emailLock);
 r = await fetch(base + `/dashboard/security?access=${lockAccess}`, { headers:{cookie:lockCookie} });
 html = await r.text();

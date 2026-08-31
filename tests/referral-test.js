@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
+import { registerAndVerify } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 const pngBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
-const referrerEmail = `referrer${Date.now()}@example.test`;
-let r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Referrer Person',email:referrerEmail,phone:'+15550001111',password:'Password#2026',confirmPassword:'Password#2026'}), redirect:'manual' });
-const rCookie = r.headers.get('set-cookie');
-const rAccess = r.headers.get('location').split('access=')[1];
+const referrerEmail = `referrer${Date.now()}@example.com`;
+const { cookie: rCookie, access: rAccess } = await registerAndVerify(base, { name:'Referrer Person', email:referrerEmail, phone:'+15550001111', password:'Password#2026' });
 
-r = await fetch(base + `/dashboard/refer?access=${rAccess}`, { headers:{cookie:rCookie} });
+let r = await fetch(base + `/dashboard/refer?access=${rAccess}`, { headers:{cookie:rCookie} });
 let html = await r.text();
 const codeMatch = html.match(/Referral code: <b>([^<]+)<\/b>/);
 assert.ok(codeMatch, 'referral code should be shown');
@@ -22,11 +21,8 @@ assert.ok(html.includes(`Referral code applied: <b>${code}</b>`));
 assert.ok(html.includes(`value="${code}"`), 'hidden ref field should carry the code');
 console.log('Register page shows and carries the referral code through the form');
 
-const referredEmail = `referred${Date.now()}@example.test`;
-r = await fetch(base + '/register', { method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:form({name:'Referred Person',email:referredEmail,phone:'+15550002222',password:'Password#2026',confirmPassword:'Password#2026',ref:code}), redirect:'manual' });
-assert.equal(r.status, 302);
-const referredAccess = r.headers.get('location').split('access=')[1];
-const referredCookie = r.headers.get('set-cookie');
+const referredEmail = `referred${Date.now()}@example.com`;
+const { cookie: referredCookie, access: referredAccess } = await registerAndVerify(base, { name:'Referred Person', email:referredEmail, phone:'+15550002222', password:'Password#2026', ref:code });
 console.log('Referred user registers using the code');
 
 r = await fetch(base + `/dashboard/refer?access=${rAccess}`, { headers:{cookie:rCookie} });

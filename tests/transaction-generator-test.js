@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerAndVerify } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 
@@ -8,8 +9,9 @@ const aAccess = r.headers.get('location').split('admin_access=')[1];
 assert.ok(aAccess, 'admin should log in');
 
 async function makeUser(name) {
-  const email = `gen_${Date.now()}_${Math.random().toString(36).slice(2)}@example.test`;
-  await fetch(base+'/register',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({name,email,phone:'+15550001111',password:'Password#2026',confirmPassword:'Password#2026'}),redirect:'manual'});
+  const email = `gen_${Date.now()}_${Math.random().toString(36).slice(2)}@example.com`;
+  const spaceIdx = name.indexOf(' ');
+  await fetch(base+'/register',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({firstName:spaceIdx===-1?name:name.slice(0,spaceIdx),lastName:spaceIdx===-1?'Test':name.slice(spaceIdx+1),email,phone:'+15550001111',accountType:'Checking',password:'Password#2026',confirmPassword:'Password#2026'}),redirect:'manual'});
   let rr = await fetch(base+`/admin/transaction-generator?q=${encodeURIComponent(name)}&admin_access=${aAccess}`,{headers:{cookie:aCookie}});
   const html = await rr.text();
   const userId = html.match(/\/admin\/transaction-generator\/([0-9a-f-]{36})/)[1];
@@ -188,7 +190,7 @@ let editUser, editTxId;
   let rr = await fetch(base+`/admin/admin-users?admin_access=${aAccess}`,{headers:{cookie:aCookie}});
   let html = await rr.text();
   const auCsrf = html.match(/name="_csrf" value="([^"]+)"/)[1];
-  const viewerEmail = `genviewer${Date.now()}@example.test`;
+  const viewerEmail = `genviewer${Date.now()}@example.com`;
   rr = await fetch(base+'/admin/admin-users',{method:'POST',headers:{cookie:aCookie,'content-type':'application/x-www-form-urlencoded'},body:form({_csrf:auCsrf,_admin_access:aAccess,name:'Gen Viewer',email:viewerEmail,password:'ViewerPass#1',role:'VIEWER',confirm:'YES'}),redirect:'manual'});
   assert.equal(rr.status, 302);
   rr = await fetch(base+'/admin/login',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({email:viewerEmail,password:'ViewerPass#1'}),redirect:'manual'});
@@ -200,9 +202,8 @@ let editUser, editTxId;
   assert.equal(rr.status, 302);
   assert.ok((rr.headers.get('location')||'').includes('/admin/login'));
 
-  const custEmail = `gennotadmin${Date.now()}@example.test`;
-  rr = await fetch(base+'/register',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({name:'Not Admin',email:custEmail,phone:'+15550009988',password:'Password#2026',confirmPassword:'Password#2026'}),redirect:'manual'});
-  const custCookie = rr.headers.get('set-cookie');
+  const custEmail = `gennotadmin${Date.now()}@example.com`;
+  const { cookie: custCookie } = await registerAndVerify(base, { name:'Not Admin', email:custEmail, phone:'+15550009988', password:'Password#2026' });
   rr = await fetch(base+'/admin/transaction-generator',{headers:{cookie:custCookie},redirect:'manual'});
   assert.equal(rr.status, 302);
   assert.ok((rr.headers.get('location')||'').includes('/admin/login'), 'a logged-in customer session must not grant admin access');
