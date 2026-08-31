@@ -76,12 +76,12 @@ const accountNo = () => `NC-${crypto.randomInt(10000000, 99999999)}`;
 const publicNav = [['Personal','/personal'],['Business','/business'],['Accounts','/accounts'],['Savings','/savings'],['Cards','/cards'],['Loans','/loans'],['Transfers','/transfers'],['Exchange','/fx'],['Security','/security'],['News','/news'],['Help','/help'],['Contact','/contact']];
 const worldCurrencies = ['USD','EUR','GBP','RWF','NGN','KES','GHS','TZS','AED','AFN','ALL','AMD','ANG','AOA','ARS','AUD','AWG','AZN','BAM','BBD','BDT','BGN','BHD','BIF','BMD','BND','BOB','BRL','BSD','BTN','BWP','BYN','BZD','CAD','CDF','CHF','CLP','CNY','COP','CRC','CUP','CVE','CZK','DJF','DKK','DOP','DZD','EGP','ERN','ETB','FJD','FKP','GEL','GIP','GMD','GNF','GTQ','GYD','HKD','HNL','HTG','HUF','IDR','ILS','INR','IQD','IRR','ISK','JMD','JOD','JPY','KGS','KHR','KMF','KPW','KRW','KWD','KYD','KZT','LAK','LBP','LKR','LRD','LSL','LYD','MAD','MDL','MGA','MKD','MMK','MNT','MOP','MRU','MUR','MVR','MWK','MXN','MYR','MZN','NAD','NIO','NOK','NPR','NZD','OMR','PAB','PEN','PGK','PHP','PKR','PLN','PYG','QAR','RON','RSD','RUB','SAR','SBD','SCR','SDG','SEK','SGD','SHP','SLE','SOS','SRD','SSP','STN','SYP','SZL','THB','TJS','TMT','TND','TOP','TRY','TTD','TWD','UAH','UGX','UYU','UZS','VES','VND','VUV','WST','XAF','XCD','XOF','XPF','YER','ZAR','ZMW','ZWL'];
 
-const adminPerms = ['admin.access','users.read','users.manage','balances.read','balances.adjust','rates.read','rates.manage','transactions.read','fees.manage','products.manage','content.manage','audit.view','security.manage','admin.manage','users.view','users.edit','users.suspend','users.delete','balances.view','balances.add','balances.remove','transactions.view','transactions.approve','transactions.reject','transactions.correct','transactions.reverse','rates.view','fees.view','services.view','services.manage','reports.view','transfers.view','transfers.approve','transfers.reject','transfers.manage','support.view','support.manage','ai.manage','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','grants.manage','loans.view','loans.manage','admin_users.manage','bills.view','bills.manage'];
+const adminPerms = ['admin.access','users.read','users.manage','balances.read','balances.adjust','rates.read','rates.manage','transactions.read','fees.manage','products.manage','content.manage','audit.view','security.manage','admin.manage','users.view','users.edit','users.suspend','users.delete','balances.view','balances.add','balances.remove','transactions.view','transactions.approve','transactions.reject','transactions.correct','transactions.reverse','rates.view','fees.view','services.view','services.manage','reports.view','transfers.view','transfers.approve','transfers.reject','transfers.manage','support.view','support.manage','ai.manage','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','grants.manage','loans.view','loans.manage','admin_users.manage','bills.view','bills.manage','business.view','business.manage'];
 const customerPerms = ['dashboard.access'];
 const rolePermissions = {
   SUPER_ADMIN: adminPerms,
-  FINANCE_ADMIN: ['admin.access','users.view','balances.read','balances.view','balances.adjust','balances.add','balances.remove','transactions.view','transactions.read','transactions.correct','transactions.approve','transactions.reject','transactions.reverse','transfers.view','transfers.approve','transfers.reject','transfers.manage','kyc.view','cards.view','grants.view','grants.manage','loans.view','loans.manage','rates.view','fees.view','reports.view','audit.view','bills.view','bills.manage'],
-  SUPPORT_ADMIN: ['admin.access','users.view','users.edit','users.suspend','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','loans.view','support.view','support.manage','transactions.view','balances.view','bills.view'],
+  FINANCE_ADMIN: ['admin.access','users.view','balances.read','balances.view','balances.adjust','balances.add','balances.remove','transactions.view','transactions.read','transactions.correct','transactions.approve','transactions.reject','transactions.reverse','transfers.view','transfers.approve','transfers.reject','transfers.manage','kyc.view','cards.view','grants.view','grants.manage','loans.view','loans.manage','rates.view','fees.view','reports.view','audit.view','bills.view','bills.manage','business.view','business.manage'],
+  SUPPORT_ADMIN: ['admin.access','users.view','users.edit','users.suspend','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','loans.view','support.view','support.manage','transactions.view','balances.view','bills.view','business.view'],
   VIEWER: adminPerms.filter(p => p.endsWith('.view') || p.endsWith('.read') || p === 'admin.access')
 };
 function isSecureRequest(_req) { return true; }
@@ -197,6 +197,12 @@ async function initDb() {
   CREATE INDEX IF NOT EXISTS bill_payments_user_idx ON bill_payments(user_id, created_at);
   CREATE TABLE IF NOT EXISTS scheduled_bill_payments (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, account_id TEXT REFERENCES accounts(id), biller_id TEXT REFERENCES billers(id), saved_biller_id TEXT REFERENCES saved_billers(id), reference_number TEXT NOT NULL, amount NUMERIC(18,2) NOT NULL, currency TEXT NOT NULL, description TEXT, frequency TEXT NOT NULL, next_run_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', idempotency_key TEXT UNIQUE, last_run_at TEXT, last_run_bill_payment_id TEXT, last_failure_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
   CREATE INDEX IF NOT EXISTS scheduled_bill_payments_user_idx ON scheduled_bill_payments(user_id);
+  CREATE TABLE IF NOT EXISTS vendors (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'Vendor', account_reference TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS vendors_user_idx ON vendors(user_id);
+  CREATE TABLE IF NOT EXISTS vendor_payments (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, account_id TEXT REFERENCES accounts(id), vendor_id TEXT REFERENCES vendors(id), amount NUMERIC(18,2) NOT NULL, currency TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'PENDING', idempotency_key TEXT UNIQUE, transaction_id TEXT REFERENCES transactions(id), failure_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS vendor_payments_user_idx ON vendor_payments(user_id, created_at);
+  CREATE TABLE IF NOT EXISTS scheduled_vendor_payments (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, account_id TEXT REFERENCES accounts(id), vendor_id TEXT REFERENCES vendors(id), amount NUMERIC(18,2) NOT NULL, currency TEXT NOT NULL, description TEXT, frequency TEXT NOT NULL, next_run_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', idempotency_key TEXT UNIQUE, last_run_at TEXT, last_run_vendor_payment_id TEXT, last_failure_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS scheduled_vendor_payments_user_idx ON scheduled_vendor_payments(user_id);
   `);
   await ensureColumn('users', 'phone', 'TEXT');
   await ensureColumn('users', 'last_login_at', 'TEXT');
@@ -1026,14 +1032,14 @@ function txTable(rows) {
 
 function avatar(name='User') { return String(name).split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.toUpperCase()).join('') || 'U'; }
 function customerShell(title, inner, req, opts={}) {
-  const nav = [[t(req,'overview'),'/dashboard'],[t(req,'accounts'),'/dashboard/accounts'],[t(req,'transfer'),'/dashboard/transfers'],[t(req,'activity'),'/dashboard/transactions'],[t(req,'payments'),'/dashboard/transfers/deposit'],['Bills','/dashboard/bills'],[t(req,'cards'),'/dashboard/cards']];
+  const nav = [[t(req,'overview'),'/dashboard'],[t(req,'accounts'),'/dashboard/accounts'],[t(req,'transfer'),'/dashboard/transfers'],[t(req,'activity'),'/dashboard/transactions'],[t(req,'payments'),'/dashboard/transfers/deposit'],['Bills','/dashboard/bills'],[t(req,'cards'),'/dashboard/cards'],['Business','/dashboard/business']];
   const bottom = [[t(req,'home'),'/dashboard','⌂'],[t(req,'accounts'),'/dashboard/accounts','▣'],[t(req,'transfer'),'/dashboard/transfers','⇄'],[t(req,'activity'),'/dashboard/transactions','☷'],[t(req,'profile'),'/dashboard/profile','◌']];
   const navMatch = u => u === '/dashboard' ? req.path === '/dashboard' : (req.path === u || req.path.startsWith(u + '/'));
   const activeUrl = [...new Set([...nav.map(x=>x[1]), ...bottom.map(x=>x[1])])].filter(navMatch).sort((a,b)=>b.length-a.length)[0];
   const navLinks = nav.map(([n,u])=>`<li><a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a></li>`).join('');
   const mobileLinks = [...nav, ['Insights','/dashboard/insights'], ['Beneficiaries','/dashboard/beneficiaries'], ['Standing Orders','/dashboard/standing-orders'], [t(req,'security'),'/dashboard/security'], [t(req,'identity_verification'),'/dashboard/kyc'], [t(req,'refer_earn'),'/dashboard/refer'], [t(req,'grants'),'/dashboard/grants'], [t(req,'loans'),'/dashboard/loans'], [t(req,'currency_swap'),'/dashboard/currency-swap'], [t(req,'tax_refund'),'/dashboard/tax-refund'], [t(req,'help_support'),'/support/chat'], [t(req,'sign_out'),'/logout']].map(([n,u])=>`<li><a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a></li>`).join('');
   const verifyBanners = `${req.user.kyc_status!=='approved'?`<div class="verify-banner warn"><span class="icon">⚠</span><p>You haven't verified your identity yet. Until you do you can receive money but not send it. <a href="${withAccess(req,'/dashboard/kyc')}">Verify now →</a></p></div>`:''}${!req.user.email_verified_at?`<div class="verify-banner soft"><p>Your email isn't verified yet. <a href="${withAccess(req,'/dashboard/security')}">Verify now →</a></p></div>`:''}`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="customer-app" data-theme="${req.user.theme_preference==='dark'?'dark':'light'}"><header class="customer-header"><div class="customer-header-main"><a class="brand customer-brand" href="${withAccess(req,'/dashboard')}">${logo()}</a><nav class="customer-desktop-nav" aria-label="Secure banking navigation"><ul>${navLinks}</ul></nav><form class="customer-search" action="/dashboard/transactions"><input name="q" placeholder="Search" aria-label="Search transactions and activity">${hiddenAccess(req)}</form>${langSwitcher(req)}<a class="customer-icon" href="${withAccess(req,'/dashboard/notifications')}" aria-label="Notifications">◌<sup>${req.user.unread_notifications}</sup></a><div class="customer-profile"><button type="button" class="customer-avatar" aria-label="Profile menu" aria-expanded="false"><span>${esc(avatar(req.user.name))}</span></button><div class="customer-profile-panel" role="menu" hidden><a href="${withAccess(req,'/dashboard/profile')}">${t(req,'my_profile')}</a><a href="${withAccess(req,'/dashboard/security')}">${t(req,'security')}</a><a href="${withAccess(req,'/dashboard/kyc')}">${t(req,'identity_verification')}</a><a href="${withAccess(req,'/dashboard/refer')}">${t(req,'refer_earn')}</a><a href="${withAccess(req,'/dashboard/bills')}">Bills</a><a href="${withAccess(req,'/dashboard/grants')}">${t(req,'grants')}</a><a href="${withAccess(req,'/dashboard/loans')}">${t(req,'loans')}</a><a href="${withAccess(req,'/dashboard/currency-swap')}">${t(req,'currency_swap')}</a><a href="${withAccess(req,'/dashboard/tax-refund')}">${t(req,'tax_refund')}</a><a href="${withAccess(req,'/dashboard/insights')}">Insights</a><a href="${withAccess(req,'/dashboard/beneficiaries')}">Beneficiaries</a><a href="${withAccess(req,'/dashboard/standing-orders')}">Standing Orders</a><a href="${withAccess(req,'/dashboard/settings')}">${t(req,'preferences')}</a><a href="${withAccess(req,'/support/chat')}">${t(req,'help_support')}</a><a href="${withAccess(req,'/logout')}">${t(req,'sign_out')}</a></div></div><details class="customer-menu-details"><summary>Menu</summary><nav class="customer-mobile-drawer" id="customerMobileNav" aria-label="Mobile banking navigation"><ul>${mobileLinks}</ul></nav></details></div></header>${verifyBanners}<main class="customer-main">${inner}</main><form class="sr-only" method="post" action="/logout"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}</form><nav class="customer-bottom-nav" aria-label="Mobile bottom navigation">${bottom.map(([n,u,i])=>`<a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}"><span>${i}</span>${n}</a>`).join('')}</nav>${opts.hideFab?'':aiWidget()}<script src="/assets/app.js"></script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="customer-app" data-theme="${req.user.theme_preference==='dark'?'dark':'light'}"><header class="customer-header"><div class="customer-header-main"><a class="brand customer-brand" href="${withAccess(req,'/dashboard')}">${logo()}</a><nav class="customer-desktop-nav" aria-label="Secure banking navigation"><ul>${navLinks}</ul></nav><form class="customer-search" action="/dashboard/transactions"><input name="q" placeholder="Search" aria-label="Search transactions and activity">${hiddenAccess(req)}</form>${langSwitcher(req)}<a class="customer-icon" href="${withAccess(req,'/dashboard/notifications')}" aria-label="Notifications">◌<sup>${req.user.unread_notifications}</sup></a><div class="customer-profile"><button type="button" class="customer-avatar" aria-label="Profile menu" aria-expanded="false"><span>${esc(avatar(req.user.name))}</span></button><div class="customer-profile-panel" role="menu" hidden><a href="${withAccess(req,'/dashboard/profile')}">${t(req,'my_profile')}</a><a href="${withAccess(req,'/dashboard/security')}">${t(req,'security')}</a><a href="${withAccess(req,'/dashboard/kyc')}">${t(req,'identity_verification')}</a><a href="${withAccess(req,'/dashboard/refer')}">${t(req,'refer_earn')}</a><a href="${withAccess(req,'/dashboard/bills')}">Bills</a><a href="${withAccess(req,'/dashboard/business')}">Business</a><a href="${withAccess(req,'/dashboard/grants')}">${t(req,'grants')}</a><a href="${withAccess(req,'/dashboard/loans')}">${t(req,'loans')}</a><a href="${withAccess(req,'/dashboard/currency-swap')}">${t(req,'currency_swap')}</a><a href="${withAccess(req,'/dashboard/tax-refund')}">${t(req,'tax_refund')}</a><a href="${withAccess(req,'/dashboard/insights')}">Insights</a><a href="${withAccess(req,'/dashboard/beneficiaries')}">Beneficiaries</a><a href="${withAccess(req,'/dashboard/standing-orders')}">Standing Orders</a><a href="${withAccess(req,'/dashboard/settings')}">${t(req,'preferences')}</a><a href="${withAccess(req,'/support/chat')}">${t(req,'help_support')}</a><a href="${withAccess(req,'/logout')}">${t(req,'sign_out')}</a></div></div><details class="customer-menu-details"><summary>Menu</summary><nav class="customer-mobile-drawer" id="customerMobileNav" aria-label="Mobile banking navigation"><ul>${mobileLinks}</ul></nav></details></div></header>${verifyBanners}<main class="customer-main">${inner}</main><form class="sr-only" method="post" action="/logout"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}</form><nav class="customer-bottom-nav" aria-label="Mobile bottom navigation">${bottom.map(([n,u,i])=>`<a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}"><span>${i}</span>${n}</a>`).join('')}</nav>${opts.hideFab?'':aiWidget()}<script src="/assets/app.js"></script></body></html>`;
 }
 
 async function customerDashboard(req,res) {
@@ -1672,7 +1678,7 @@ app.post('/dashboard/standing-orders/:id/cancel', requireCustomer, async (req,re
   } catch (e) { next(e); }
 });
 // ==================== end Standing Orders ====================
-app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await processDueStandingOrders(req); } catch (e) { console.error('[standing-orders]', e.message); } try { await processDueScheduledBillPayments(req); } catch (e) { console.error('[scheduled-bill-payments]', e.message); } customerDashboard(req,res).catch(next); });
+app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await processDueStandingOrders(req); } catch (e) { console.error('[standing-orders]', e.message); } try { await processDueScheduledBillPayments(req); } catch (e) { console.error('[scheduled-bill-payments]', e.message); } try { await processDueScheduledVendorPayments(req); } catch (e) { console.error('[scheduled-vendor-payments]', e.message); } customerDashboard(req,res).catch(next); });
 ['accounts','transactions','cards','savings','profile','security','notifications','settings','statements','insights'].forEach(s => app.get('/dashboard/'+s, requireCustomer, async (req,res) => {
   const accounts = (await q('SELECT * FROM accounts WHERE user_id=$1', [req.user.id])).rows;
   const tx = (await q('SELECT t.* FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.user_id=$1 ORDER BY t.created_at DESC', [req.user.id])).rows;
@@ -1698,7 +1704,7 @@ app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await pro
     }
   }
   const kycStatus = kycRow?.status || 'not_submitted';
-  const profileNavLinks = [['Overview & Personal Info','/dashboard/profile'],['Security','/dashboard/security'],['Notifications','/dashboard/notifications'],['Preferences','/dashboard/settings'],['Statements','/dashboard/statements'],['Bills','/dashboard/bills'],['Help & Support','/support']];
+  const profileNavLinks = [['Overview & Personal Info','/dashboard/profile'],['Security','/dashboard/security'],['Notifications','/dashboard/notifications'],['Preferences','/dashboard/settings'],['Statements','/dashboard/statements'],['Bills','/dashboard/bills'],['Business','/dashboard/business'],['Help & Support','/support']];
   const profileNav = `<nav class="profile-tabs">${profileNavLinks.map(([n,u])=>`<a class="${req.path===u?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a>`).join('')}</nav>`;
   let content;
   if (s==='accounts') content = `<section class="page-head"><h2>Accounts</h2><p>View balances, account status and available account actions.</p></section><div class="account-grid">${accounts.map(a=>`<article class="account-card"><span>${esc(a.type)}</span><h3>${money(a.balance)}</h3><p>Available balance ${money(a.balance)}</p><small>•••• ${esc(a.account_no).slice(-4)} · ${esc(a.currency)} · ${esc(a.status)}</small><div><a class="btn small" href="${withAccess(req,'/dashboard/transactions')}">View</a><a class="btn small secondary" href="${withAccess(req,'/dashboard/transfers')}">Transfer</a><a class="btn small ghost" href="${withAccess(req,'/dashboard/statements')}">Statements</a></div></article>`).join('')}</div>`;
@@ -2216,6 +2222,224 @@ app.post('/dashboard/bills/saved/:id/delete', requireCustomer, async (req,res,ne
   } catch (e) { next(e); }
 });
 // ==================== end Bill Payments ====================
+// ==================== Business Banking ====================
+const VENDOR_CATEGORIES = ['Supplier','Contractor','Payroll','Utility','Other'];
+function businessNav(req) { return `<div class="transfer-nav"><a href="${withAccess(req,'/dashboard/business')}">Overview</a><a href="${withAccess(req,'/dashboard/business/vendors')}">Vendors</a><a href="${withAccess(req,'/dashboard/business/scheduled')}">Scheduled Payments</a><a href="${withAccess(req,'/dashboard/business/payments')}">Payment History</a></div>`; }
+function buildCashFlowSummary(tx, days=30) {
+  const cutoff = new Date(Date.now() - days*24*60*60*1000);
+  const rows = tx.filter(t => new Date(t.transaction_date||t.created_at) >= cutoff);
+  const totalIn = rows.filter(t=>num(t.amount)>=0).reduce((s,t)=>s+num(t.amount), 0);
+  const totalOut = rows.filter(t=>num(t.amount)<0).reduce((s,t)=>s+Math.abs(num(t.amount)), 0);
+  return { totalIn, totalOut, net: totalIn-totalOut, count: rows.length, days };
+}
+app.get('/dashboard/business', requireCustomer, async (req,res,next) => {
+  try {
+    const accounts = (await q('SELECT * FROM accounts WHERE user_id=$1', [req.user.id])).rows;
+    const tx = (await q('SELECT t.* FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.user_id=$1 ORDER BY t.created_at DESC', [req.user.id])).rows;
+    const cashFlow = buildCashFlowSummary(tx, 30);
+    const recent = (await q('SELECT vp.*, v.name vendor_name FROM vendor_payments vp JOIN vendors v ON v.id=vp.vendor_id WHERE vp.user_id=$1 ORDER BY vp.created_at DESC LIMIT 5', [req.user.id])).rows;
+    const recentHtml = recent.length ? `<table><tr><th>Vendor</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr>${recent.map(r=>`<tr><td>${esc(r.vendor_name)}</td><td>${money(r.amount)}</td><td><span class="status ${esc(String(r.status).toLowerCase())}">${esc(r.status)}</span></td><td>${fmt(r.created_at)}</td><td><a class="btn small ghost" href="${withAccess(req,`/dashboard/business/payments/${r.id}`)}">View</a></td></tr>`).join('')}</table>` : '<p class="empty">No vendor payments yet.</p>';
+    const cashFlowHtml = `<div class="metric-grid"><article><span>Money In (30 days)</span><b class="pos">+${money(cashFlow.totalIn)}</b></article><article><span>Money Out (30 days)</span><b class="neg">-${money(cashFlow.totalOut)}</b></article><article><span>Net Cash Flow</span><b class="${cashFlow.net>=0?'pos':'neg'}">${cashFlow.net>=0?'+':'-'}${money(Math.abs(cashFlow.net))}</b></article><article><span>Transactions</span><b>${cashFlow.count}</b></article></div>`;
+    const accountsHtml = accounts.length ? `<div class="account-grid">${accounts.map(a=>`<article class="account-card"><span>${esc(a.type)}</span><h3>${money(a.balance)}</h3><small>•••• ${esc(String(a.account_no||'').slice(-4))} · ${esc(a.currency)}</small></article>`).join('')}</div>` : '';
+    res.send(customerShell('Business Banking', `<section class="page-head"><h2>Business Banking</h2><p>Manage vendor payments, recurring payments and cash flow visibility for your accounts.</p></section>${businessNav(req)}<section class="panel"><h2>Your Accounts</h2>${accountsHtml}</section><section class="panel"><h2>Cash Flow Summary</h2><p class="small-copy">Based on all account activity over the last 30 days.</p>${cashFlowHtml}</section><section class="panel"><h2>Recent Vendor Payments</h2>${recentHtml}</section><section class="quick-actions"><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Manage Vendors</a><a class="btn secondary" href="${withAccess(req,'/dashboard/business/scheduled')}">Scheduled Payments</a></section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/dashboard/business/vendors', requireCustomer, async (req,res,next) => {
+  try {
+    const vendors = (await q('SELECT * FROM vendors WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id])).rows;
+    const editVendor = req.query.edit ? vendors.find(v => v.id === req.query.edit) : null;
+    const vendorCard = v => {
+      if (editVendor && v.id === editVendor.id) return `<article class="account-card"><span>${esc(v.category)}</span><h3>Edit ${esc(v.name)}</h3><form class="inline" method="post" action="${withAccess(req,`/dashboard/business/vendors/${v.id}/edit`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Name<input name="name" value="${esc(v.name)}" required maxlength="120"></label><label>Category<select name="category">${VENDOR_CATEGORIES.map(c=>`<option ${c===v.category?'selected':''}>${esc(c)}</option>`).join('')}</select></label><label>Account/Reference<input name="accountReference" value="${esc(v.account_reference)}" required maxlength="60"></label><label>Notes<input name="notes" value="${esc(v.notes||'')}" maxlength="140"></label><div class="quick-actions"><button class="btn small">Save</button><a class="btn small ghost" href="${withAccess(req,'/dashboard/business/vendors')}">Cancel</a></div></form></article>`;
+      return `<article class="account-card"><span>${esc(v.category)}</span><h3>${esc(v.name)}</h3><small>Ref •••• ${esc(String(v.account_reference).slice(-4))}</small>${v.notes?`<p>${esc(v.notes)}</p>`:''}<div><a class="btn small" href="${withAccess(req,`/dashboard/business/pay?vendorId=${v.id}`)}">Pay</a><a class="btn small ghost" href="${withAccess(req,`/dashboard/business/vendors?edit=${v.id}`)}">Edit</a><form class="inline" method="post" action="${withAccess(req,`/dashboard/business/vendors/${v.id}/delete`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn small ghost">Remove</button></form></div></article>`;
+    };
+    const list = vendors.length ? `<div class="account-grid">${vendors.map(vendorCard).join('')}</div>` : '<section class="panel empty-pro"><h3>No vendors yet</h3><p>Add a vendor below to start paying them.</p></section>';
+    const addForm = `<form class="inline" method="post" action="${withAccess(req,'/dashboard/business/vendors')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Name<input name="name" required maxlength="120"></label><label>Category<select name="category">${VENDOR_CATEGORIES.map(c=>`<option>${esc(c)}</option>`).join('')}</select></label><label>Account/Reference Number<input name="accountReference" required maxlength="60"></label><label>Notes (optional)<input name="notes" maxlength="140"></label><button class="btn">Add Vendor</button></form>`;
+    res.send(customerShell('Vendors', `<section class="page-head"><h2>Vendors</h2><p>Manage the vendors and payees you pay from your accounts.</p></section>${businessNav(req)}<section class="panel"><h2>Your Vendors</h2>${list}</section><section class="panel"><h2>Add a Vendor</h2>${addForm}</section>`, req));
+  } catch (e) { next(e); }
+});
+const vendorSchema = z.object({ name:z.string().min(2).max(120), category:z.enum(VENDOR_CATEGORIES), accountReference:z.string().min(3).max(60), notes:z.string().max(140).optional() });
+app.post('/dashboard/business/vendors', requireCustomer, async (req,res,next) => {
+  try {
+    const p = vendorSchema.parse(req.body);
+    const id = uid();
+    await q('INSERT INTO vendors (id,user_id,name,category,account_reference,notes,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, req.user.id, p.name, p.category, p.accountReference, p.notes||null, nowIso()]);
+    await audit(req, 'VENDOR_CREATED', 'vendor', id, { name:p.name, category:p.category });
+    res.redirect(withAccess(req, '/dashboard/business/vendors'));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send('Invalid input'); next(e); }
+});
+app.post('/dashboard/business/vendors/:id/edit', requireCustomer, async (req,res,next) => {
+  try {
+    const vendor = await one('SELECT * FROM vendors WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!vendor) return res.status(404).send('Not found');
+    const p = vendorSchema.parse(req.body);
+    await q('UPDATE vendors SET name=$1, category=$2, account_reference=$3, notes=$4 WHERE id=$5', [p.name, p.category, p.accountReference, p.notes||null, vendor.id]);
+    await audit(req, 'VENDOR_UPDATED', 'vendor', vendor.id, {});
+    res.redirect(withAccess(req, '/dashboard/business/vendors'));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send('Invalid input'); next(e); }
+});
+app.post('/dashboard/business/vendors/:id/delete', requireCustomer, async (req,res,next) => {
+  try {
+    const vendor = await one('SELECT * FROM vendors WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!vendor) return res.status(404).send('Not found');
+    await q('DELETE FROM vendors WHERE id=$1', [vendor.id]);
+    await audit(req, 'VENDOR_REMOVED', 'vendor', vendor.id, {});
+    res.redirect(withAccess(req, '/dashboard/business/vendors'));
+  } catch (e) { next(e); }
+});
+app.get('/dashboard/business/pay', requireCustomer, async (req,res,next) => {
+  try {
+    const accounts = (await q('SELECT * FROM accounts WHERE user_id=$1', [req.user.id])).rows;
+    const vendor = await one('SELECT * FROM vendors WHERE id=$1 AND user_id=$2', [req.query.vendorId, req.user.id]);
+    if (!vendor) return res.status(404).send(customerShell('Vendor not found', `<section class="panel state error"><h1>Vendor not found</h1><p>Please choose a vendor from your list.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Manage Vendors</a></section>`, req));
+    const accountOptions = accounts.map(a=>`<option value="${a.id}">${esc(a.type)} — ${esc(a.currency)} (${money(a.balance)})</option>`).join('');
+    res.send(customerShell(`Pay ${vendor.name}`, `<section class="page-head"><h2>Pay ${esc(vendor.name)}</h2><p>${esc(vendor.category)}</p></section>${businessNav(req)}<section class="panel"><form class="inline" method="post" action="${withAccess(req,'/dashboard/business/pay/confirm')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<input type="hidden" name="vendorId" value="${esc(vendor.id)}"><label>Pay From<select name="accountId">${accountOptions}</select></label><label>Amount<input name="amount" type="number" step="0.01" min="0.01" required></label><label>Description (optional)<input name="description" maxlength="140"></label><label>Frequency<select name="frequency"><option value="once">One-time payment</option><option value="monthly">Monthly</option><option value="weekly">Weekly</option></select></label><label>Start date (for recurring payments)<input name="startDate" type="date"></label><button class="btn">Review Payment</button></form></section>`, req));
+  } catch (e) { next(e); }
+});
+const vendorPaySchema = z.object({ accountId:z.string().uuid(), vendorId:z.string().uuid(), amount:z.coerce.number().positive().max(1000000), description:z.string().max(140).optional(), frequency:z.enum(['once','weekly','monthly']).optional().default('once'), startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), idempotency_key:z.string().uuid().optional(), confirm:z.string().optional() });
+app.post('/dashboard/business/pay/confirm', requireCustomer, rateLimit({ windowMs:15*60*1000, max:20, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = vendorPaySchema.parse(req.body);
+    if (p.frequency !== 'once' && !p.startDate) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Please check the form</h1><p>A start date is required for a recurring payment.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    const account = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [p.accountId, req.user.id]);
+    if (!account) return res.status(404).send('Account not found');
+    if (account.status !== 'active') return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Account unavailable</h1><p>This account cannot be used for payments right now.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    const vendor = await one('SELECT * FROM vendors WHERE id=$1 AND user_id=$2', [p.vendorId, req.user.id]);
+    if (!vendor) return res.status(404).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Vendor not found</h1><p>Please choose a vendor from your list.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Manage Vendors</a></section>`, req));
+    if (!(await serviceEnabled('payments'))) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Service unavailable</h1><p>Payments are temporarily unavailable. Please try again later.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    if (p.frequency === 'once' && num(account.balance) < p.amount) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Insufficient balance</h1><p>Your ${esc(account.currency)} account does not have enough available balance for this payment.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    const idk = uid();
+    const scheduleNotice = p.frequency !== 'once' ? `<p class="notice">This payment will repeat ${p.frequency}, starting ${esc(p.startDate)}. Each occurrence is processed automatically — you can pause or cancel it anytime from Scheduled Payments.</p>` : '<p class="notice">No money has been moved yet. Review the details above before confirming.</p>';
+    res.send(customerShell('Review Payment', `<h1>Review Payment</h1><section class="panel"><h2>Confirm before paying</h2><div class="metric-grid"><article><span>Vendor</span><b>${esc(vendor.name)}</b><p>${esc(vendor.category)}</p></article><article><span>Amount</span><b>${money(p.amount)}</b><p>${esc(account.currency)}</p></article><article><span>Pay From</span><b>${esc(account.type)}</b><p>•••• ${esc(String(account.account_no||'').slice(-4))}</p></article><article><span>Frequency</span><b>${p.frequency==='once'?'One-time':p.frequency[0].toUpperCase()+p.frequency.slice(1)}</b><p>${p.frequency!=='once'?esc(p.startDate):'Today'}</p></article></div>${p.description?`<p><b>Description:</b> ${esc(p.description)}</p>`:''}${scheduleNotice}<form method="post" action="${withAccess(req,'/dashboard/business/pay/submit')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<input type="hidden" name="accountId" value="${esc(p.accountId)}"><input type="hidden" name="vendorId" value="${esc(p.vendorId)}"><input type="hidden" name="amount" value="${esc(p.amount)}">${p.description?`<input type="hidden" name="description" value="${esc(p.description)}">`:''}<input type="hidden" name="frequency" value="${esc(p.frequency)}">${p.startDate?`<input type="hidden" name="startDate" value="${esc(p.startDate)}">`:''}<input type="hidden" name="idempotency_key" value="${idk}"><label>Transaction PIN<input name="pin" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit PIN" required autocomplete="off"></label><label class="check"><input type="checkbox" name="confirm" value="YES" required> I confirm this payment</label><button class="btn">${p.frequency==='once'?'Confirm Payment':'Activate Scheduled Payment'}</button></form></section>`, req));
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    next(e);
+  }
+});
+app.post('/dashboard/business/pay/submit', requireCustomer, rateLimit({ windowMs:15*60*1000, max:30, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = vendorPaySchema.parse(req.body);
+    if (req.body.confirm !== 'YES') return res.status(400).send('Confirmation required');
+    if (p.frequency !== 'once' && !p.startDate) return res.status(400).send('A start date is required for a recurring payment');
+    const idk = String(req.body.idempotency_key || uid());
+    if (p.frequency === 'once') {
+      const dup = await one('SELECT id FROM vendor_payments WHERE idempotency_key=$1', [idk]);
+      if (dup) return res.redirect(withAccess(req, `/dashboard/business/payments/${dup.id}`));
+    } else {
+      const dup = await one('SELECT id FROM scheduled_vendor_payments WHERE idempotency_key=$1', [idk]);
+      if (dup) return res.redirect(withAccess(req, '/dashboard/business/scheduled'));
+    }
+    const pinResult = await verifyTransactionPin(req, req.body.pin);
+    if (!pinResult.ok) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(pinResult.message)}</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    const account = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [p.accountId, req.user.id]);
+    if (!account) return res.status(404).send('Account not found');
+    if (account.status !== 'active') return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Account unavailable</h1><p>This account cannot be used for payments right now.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    const vendor = await one('SELECT * FROM vendors WHERE id=$1 AND user_id=$2', [p.vendorId, req.user.id]);
+    if (!vendor) return res.status(404).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Vendor not found</h1><p>Please choose a vendor from your list.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Manage Vendors</a></section>`, req));
+    if (!(await serviceEnabled('payments'))) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Service unavailable</h1><p>Payments are temporarily unavailable. Please try again later.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    const controls = await getUserControls(req.user.id);
+    if (controls.account_status === 'blocked') return res.status(400).send(customerShell('Pay Vendor', '<section class="panel state error"><h1>Account restricted</h1><p>Your account is currently restricted. Please contact support.</p></section>', req));
+    if (p.frequency !== 'once') {
+      const scheduleId = uid();
+      await q('INSERT INTO scheduled_vendor_payments (id,user_id,account_id,vendor_id,amount,currency,description,frequency,next_run_date,status,idempotency_key,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+        [scheduleId, req.user.id, account.id, vendor.id, p.amount, account.currency, p.description||null, p.frequency, new Date(p.startDate+'T00:00:00.000Z').toISOString(), 'active', idk, nowIso(), nowIso()]);
+      await audit(req, 'SCHEDULED_VENDOR_PAYMENT_CREATED', 'scheduled_vendor_payment', scheduleId, { vendor: vendor.name, amount:p.amount, frequency:p.frequency });
+      return res.redirect(withAccess(req, '/dashboard/business/scheduled'));
+    }
+    if (num(account.balance) < p.amount) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Insufficient balance</h1><p>Your ${esc(account.currency)} account does not have enough available balance for this payment.</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    const paymentId = uid(), txId = uid();
+    await exec('BEGIN');
+    await q('UPDATE accounts SET balance=balance-$1 WHERE id=$2', [p.amount, account.id]);
+    await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,reference,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [txId, account.id, 'Vendor Payment', `Payment to ${vendor.name}`, -p.amount, account.currency, nowIso(), 'completed', idk, 'VENDOR_PAYMENT']);
+    await q('INSERT INTO vendor_payments (id,user_id,account_id,vendor_id,amount,currency,description,status,idempotency_key,transaction_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [paymentId, req.user.id, account.id, vendor.id, p.amount, account.currency, p.description||null, 'COMPLETED', idk, txId, nowIso(), nowIso()]);
+    await exec('COMMIT');
+    await audit(req, 'VENDOR_PAYMENT_CREATED', 'vendor_payment', paymentId, { vendor: vendor.name, amount:p.amount, currency:account.currency });
+    if (req.user.login_alerts_enabled !== 'no') await q('INSERT INTO notifications VALUES ($1,$2,$3,$4,$5,$6)', [uid(), req.user.id, 'Vendor payment completed', `Your payment of ${money(p.amount)} to ${vendor.name} was completed.`, 'unread', nowIso()]);
+    res.redirect(withAccess(req, `/dashboard/business/payments/${paymentId}`));
+  } catch (e) {
+    try { await exec('ROLLBACK'); } catch { /* ignore */ }
+    if (e instanceof z.ZodError) return res.status(400).send(customerShell('Pay Vendor', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p><a class="btn" href="${withAccess(req,'/dashboard/business/vendors')}">Back</a></section>`, req));
+    next(e);
+  }
+});
+app.get('/dashboard/business/payments', requireCustomer, async (req,res,next) => {
+  try {
+    const rows = (await q('SELECT vp.*, v.name vendor_name FROM vendor_payments vp JOIN vendors v ON v.id=vp.vendor_id WHERE vp.user_id=$1 ORDER BY vp.created_at DESC LIMIT 100', [req.user.id])).rows;
+    const list = rows.length ? `<table><tr><th>Vendor</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr>${rows.map(r=>`<tr><td>${esc(r.vendor_name)}</td><td>${money(r.amount)}</td><td><span class="status ${esc(String(r.status).toLowerCase())}">${esc(r.status)}</span></td><td>${fmt(r.created_at)}</td><td><a class="btn small ghost" href="${withAccess(req,`/dashboard/business/payments/${r.id}`)}">View</a></td></tr>`).join('')}</table>` : '<section class="panel empty-pro"><h3>No vendor payments yet</h3><p>Your completed vendor payments will appear here.</p></section>';
+    res.send(customerShell('Vendor Payment History', `<section class="page-head"><h2>Vendor Payment History</h2></section>${businessNav(req)}<section class="panel">${list}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/dashboard/business/payments/:id', requireCustomer, async (req,res,next) => {
+  try {
+    const payment = await one('SELECT vp.*, v.name vendor_name, v.category, v.account_reference, a.type account_type, a.account_no FROM vendor_payments vp JOIN vendors v ON v.id=vp.vendor_id JOIN accounts a ON a.id=vp.account_id WHERE vp.id=$1 AND vp.user_id=$2', [req.params.id, req.user.id]);
+    if (!payment) return res.status(404).send(customerShell('Payment not found', `<section class="panel state error"><h1>Payment not found</h1><p>We couldn't find that vendor payment.</p><a class="btn" href="${withAccess(req,'/dashboard/business')}">Back to Business Banking</a></section>`, req));
+    const content = `<section class="page-head"><h2>Vendor Payment Receipt</h2><p>Reference ${esc(payment.id).slice(0,8).toUpperCase()}</p></section><section class="panel receipt" id="statementPanel"><div class="statement-letterhead"><div class="statement-brand">${logo()}<span>VESPERA BANK</span></div><div class="statement-meta"><b>Payment Receipt</b><span>${fmt(payment.created_at)}</span></div></div><div class="info-grid"><p><b>Vendor</b><span>${esc(payment.vendor_name)}</span></p><p><b>Category</b><span>${esc(payment.category)}</span></p><p><b>Amount</b><span>${money(payment.amount)} ${esc(payment.currency)}</span></p><p><b>Paid From</b><span>${esc(payment.account_type)} •••• ${esc(String(payment.account_no||'').slice(-4))}</span></p><p><b>Status</b><span>${esc(payment.status)}</span></p>${payment.description?`<p><b>Description</b><span>${esc(payment.description)}</span></p>`:''}${payment.failure_reason?`<p><b>Reason</b><span>${esc(payment.failure_reason)}</span></p>`:''}</div><div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="VendorPayment_${esc(payment.vendor_name).replace(/\s+/g,'')}_${esc(payment.id).slice(0,8)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,'/dashboard/business')}">Back to Business Banking</a></div></section>`;
+    res.send(customerShell('Payment Receipt', content, req));
+  } catch (e) { next(e); }
+});
+async function processDueScheduledVendorPayments(req) {
+  const due = (await q("SELECT * FROM scheduled_vendor_payments WHERE user_id=$1 AND status='active' AND next_run_date<=$2", [req.user.id, nowIso()])).rows;
+  for (const sched of due) {
+    try {
+      const account = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [sched.account_id, req.user.id]);
+      if (!account) throw new Error('Account no longer exists.');
+      if (account.status !== 'active') throw new Error('Account is not active.');
+      const vendor = await one('SELECT * FROM vendors WHERE id=$1 AND user_id=$2', [sched.vendor_id, req.user.id]);
+      if (!vendor) throw new Error('Vendor no longer exists.');
+      if (!(await serviceEnabled('payments'))) throw new Error('Payment service is temporarily unavailable.');
+      if (num(account.balance) < num(sched.amount)) throw new Error('Insufficient available balance.');
+      const paymentId = uid(), txId = uid(), runIdk = uid();
+      await exec('BEGIN');
+      await q('UPDATE accounts SET balance=balance-$1 WHERE id=$2', [sched.amount, account.id]);
+      await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,reference,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [txId, account.id, 'Vendor Payment', `Scheduled payment to ${vendor.name}`, -sched.amount, account.currency, nowIso(), 'completed', runIdk, 'VENDOR_PAYMENT']);
+      await q('INSERT INTO vendor_payments (id,user_id,account_id,vendor_id,amount,currency,description,status,idempotency_key,transaction_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [paymentId, req.user.id, account.id, vendor.id, sched.amount, account.currency, sched.description, 'COMPLETED', runIdk, txId, nowIso(), nowIso()]);
+      await exec('COMMIT');
+      const nextRun = advanceNextRunDate(sched.next_run_date, sched.frequency);
+      await q('UPDATE scheduled_vendor_payments SET next_run_date=$1, last_run_at=$2, last_run_vendor_payment_id=$3, last_failure_reason=NULL, updated_at=$4 WHERE id=$5', [nextRun, nowIso(), paymentId, nowIso(), sched.id]);
+      await audit(req, 'SCHEDULED_VENDOR_PAYMENT_EXECUTED', 'scheduled_vendor_payment', sched.id, { vendor_payment_id:paymentId, next_run_date:nextRun });
+      if (req.user.login_alerts_enabled !== 'no') await q('INSERT INTO notifications VALUES ($1,$2,$3,$4,$5,$6)', [uid(), req.user.id, 'Scheduled vendor payment completed', `Your scheduled payment of ${money(sched.amount)} to ${vendor.name} was completed.`, 'unread', nowIso()]);
+    } catch (e) {
+      try { await exec('ROLLBACK'); } catch { /* ignore */ }
+      await q("UPDATE scheduled_vendor_payments SET status='paused', last_failure_reason=$1, updated_at=$2 WHERE id=$3", [String(e.message||'Execution failed').slice(0,240), nowIso(), sched.id]);
+      await audit(req, 'SCHEDULED_VENDOR_PAYMENT_PAUSED', 'scheduled_vendor_payment', sched.id, { reason:e.message });
+    }
+  }
+  return due.length;
+}
+app.get('/dashboard/business/scheduled', requireCustomer, async (req,res,next) => {
+  try {
+    const rows = (await q('SELECT svp.*, v.name vendor_name FROM scheduled_vendor_payments svp JOIN vendors v ON v.id=svp.vendor_id WHERE svp.user_id=$1 ORDER BY svp.created_at DESC', [req.user.id])).rows;
+    const list = rows.length ? `<table><tr><th>Vendor</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Status</th><th>Actions</th></tr>${rows.map(sc=>`<tr><td>${esc(sc.vendor_name)}</td><td>${money(sc.amount)} ${esc(sc.currency)}</td><td>${esc(sc.frequency)}</td><td>${fmt(sc.next_run_date)}</td><td><span class="status">${esc(sc.status)}</span>${sc.last_failure_reason?`<br><small class="error-text">${esc(sc.last_failure_reason)}</small>`:''}</td><td>${sc.status==='active'?`<form class="tx-row-action" method="post" action="${withAccess(req,`/dashboard/business/scheduled/${sc.id}/pause`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn small ghost">Pause</button></form>`:sc.status==='paused'?`<form class="tx-row-action" method="post" action="${withAccess(req,`/dashboard/business/scheduled/${sc.id}/resume`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn small ghost">Resume</button></form>`:''} ${sc.status!=='cancelled'?`<form class="tx-row-action" method="post" action="${withAccess(req,`/dashboard/business/scheduled/${sc.id}/cancel`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn small danger">Cancel</button></form>`:''}</td></tr>`).join('')}</table>` : '<section class="panel empty-pro"><h3>No scheduled payments yet</h3><p>Set one up from your vendor list by choosing a Weekly or Monthly frequency when paying.</p></section>';
+    res.send(customerShell('Scheduled Payments', `<section class="page-head"><h2>Scheduled Vendor Payments</h2><p>Recurring vendor payments run automatically on schedule. You can pause, resume or cancel any time.</p></section>${businessNav(req)}<section class="panel"><h2>Your Scheduled Payments</h2>${list}</section><p><a class="btn secondary" href="${withAccess(req,'/dashboard/business/vendors')}">+ Set up a new scheduled payment</a></p>`, req));
+  } catch (e) { next(e); }
+});
+app.post('/dashboard/business/scheduled/:id/pause', requireCustomer, async (req,res,next) => {
+  try {
+    const sc = await one('SELECT * FROM scheduled_vendor_payments WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!sc) return res.status(404).send('Not found');
+    await q("UPDATE scheduled_vendor_payments SET status='paused', updated_at=$1 WHERE id=$2", [nowIso(), sc.id]);
+    await audit(req, 'SCHEDULED_VENDOR_PAYMENT_PAUSED', 'scheduled_vendor_payment', sc.id, { by:'customer' });
+    res.redirect(withAccess(req, '/dashboard/business/scheduled'));
+  } catch (e) { next(e); }
+});
+app.post('/dashboard/business/scheduled/:id/resume', requireCustomer, async (req,res,next) => {
+  try {
+    const sc = await one('SELECT * FROM scheduled_vendor_payments WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!sc) return res.status(404).send('Not found');
+    await q("UPDATE scheduled_vendor_payments SET status='active', last_failure_reason=NULL, updated_at=$1 WHERE id=$2", [nowIso(), sc.id]);
+    await audit(req, 'SCHEDULED_VENDOR_PAYMENT_RESUMED', 'scheduled_vendor_payment', sc.id, {});
+    res.redirect(withAccess(req, '/dashboard/business/scheduled'));
+  } catch (e) { next(e); }
+});
+app.post('/dashboard/business/scheduled/:id/cancel', requireCustomer, async (req,res,next) => {
+  try {
+    const sc = await one('SELECT * FROM scheduled_vendor_payments WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!sc) return res.status(404).send('Not found');
+    await q("UPDATE scheduled_vendor_payments SET status='cancelled', updated_at=$1 WHERE id=$2", [nowIso(), sc.id]);
+    await audit(req, 'SCHEDULED_VENDOR_PAYMENT_CANCELLED', 'scheduled_vendor_payment', sc.id, {});
+    res.redirect(withAccess(req, '/dashboard/business/scheduled'));
+  } catch (e) { next(e); }
+});
+// ==================== end Business Banking ====================
 app.get('/dashboard/grants', requireCustomer, async (req,res) => {
   const applications = (await q('SELECT * FROM grant_applications WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id])).rows;
   const pending = applications.filter(g=>g.status==='pending');
@@ -2772,7 +2996,7 @@ app.post('/admin/account/email', requireAdmin, requireAdminPerm('admin.access'),
     res.redirect(withAdminAccess(req, '/admin/account?updated=1'));
   } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminAccountPage(req, { error: e.issues[0]?.message || 'Please check the form.' })); next(e); }
 });
-function adminShell(title, inner, req) { const links = [['Overview','/admin/dashboard','admin.access'],['My Account','/admin/account','admin.access'],['Search','/admin/search','admin.access'],['Users','/admin/users','users.view'],['KYC','/admin/kyc','kyc.view'],['Accounts','/admin/accounts','users.view'],['Transactions','/admin/transactions','transactions.view'],['Transaction History','/admin/transaction-generator','transactions.correct'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],['Withdrawals','/admin/withdrawals','transfers.view'],['Bill Payments','/admin/bill-payments','bills.view'],['Scheduled Bill Payments','/admin/scheduled-bill-payments','bills.view'],['Billers','/admin/billers','bills.view'],['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],['Live Support','/admin/live-support','support.view'],['Support Tickets','/admin/support-tickets','support.view'],['AI Assistant','/admin/ai-assistant','ai.manage'],['Security','/admin/security','security.manage'],['Audit Logs','/admin/audit-logs','audit.view'],['Admin Users','/admin/admin-users','admin_users.manage'],['Settings','/admin/settings','admin.manage']]; const visible = links.filter(([,,perm]) => req.admin.permissions.includes(perm)); return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><p class="small-copy">${esc(req.admin.name)} · ${esc(req.admin.role)}</p><div class="admin-side-links">${visible.map(([n,u])=>`<a href="${withAdminAccess(req,u)}">${n}</a>`).join('')}</div><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>Logout</button></form></aside><main class="app-main">${inner}</main></section><script src="/assets/app.js"></script></body></html>`; }
+function adminShell(title, inner, req) { const links = [['Overview','/admin/dashboard','admin.access'],['My Account','/admin/account','admin.access'],['Search','/admin/search','admin.access'],['Users','/admin/users','users.view'],['KYC','/admin/kyc','kyc.view'],['Accounts','/admin/accounts','users.view'],['Transactions','/admin/transactions','transactions.view'],['Transaction History','/admin/transaction-generator','transactions.correct'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],['Withdrawals','/admin/withdrawals','transfers.view'],['Bill Payments','/admin/bill-payments','bills.view'],['Scheduled Bill Payments','/admin/scheduled-bill-payments','bills.view'],['Billers','/admin/billers','bills.view'],['Vendor Payments','/admin/vendor-payments','business.view'],['Scheduled Vendor Payments','/admin/scheduled-vendor-payments','business.view'],['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],['Live Support','/admin/live-support','support.view'],['Support Tickets','/admin/support-tickets','support.view'],['AI Assistant','/admin/ai-assistant','ai.manage'],['Security','/admin/security','security.manage'],['Audit Logs','/admin/audit-logs','audit.view'],['Admin Users','/admin/admin-users','admin_users.manage'],['Settings','/admin/settings','admin.manage']]; const visible = links.filter(([,,perm]) => req.admin.permissions.includes(perm)); return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><p class="small-copy">${esc(req.admin.name)} · ${esc(req.admin.role)}</p><div class="admin-side-links">${visible.map(([n,u])=>`<a href="${withAdminAccess(req,u)}">${n}</a>`).join('')}</div><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>Logout</button></form></aside><main class="app-main">${inner}</main></section><script src="/assets/app.js"></script></body></html>`; }
 function miniBars(values) {
   const max = Math.max(...values.map(v=>Number(v.value)||0), 1);
   return `<div class="chart mini-chart">${values.map(v=>`<span title="${esc(v.label)}: ${v.value}" style="height:${Math.max(8, (Number(v.value)||0)/max*100)}%"></span>`).join('')}</div>`;
@@ -3113,6 +3337,7 @@ app.post('/admin/transactions/:id/reverse', requireAdmin, requireAdminPerm('tran
     await q('INSERT INTO transaction_events VALUES ($1,$2,$3,$4,$5,$6,$7)', [uid(), t.id, req.admin.id, 'Reversed', body.reason, JSON.stringify({ reversal_id:reversalId }), nowIso()]);
     await exec('COMMIT');
     if (t.source === 'BILL_PAYMENT') await q("UPDATE bill_payments SET status='REVERSED', failure_reason=$1, updated_at=$2 WHERE transaction_id=$3", [body.reason, nowIso(), t.id]);
+    if (t.source === 'VENDOR_PAYMENT') await q("UPDATE vendor_payments SET status='REVERSED', failure_reason=$1, updated_at=$2 WHERE transaction_id=$3", [body.reason, nowIso(), t.id]);
     await audit(req, 'TRANSACTION_REVERSED', 'transaction', t.id, { reversal_id:reversalId, reason:body.reason, amount:fromCents(reversalCents) }, { targetUserId:account.user_id, targetAccountId:account.id, targetTransactionId:reversalId, amount:fromCents(reversalCents), currency:t.currency });
     res.redirect(withAdminAccess(req, '/admin/transactions/'+t.id));
   } catch (e) { try { await exec('ROLLBACK'); } catch { /* ignore */ } if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
@@ -3736,6 +3961,35 @@ app.get('/admin/bill-payments/:id', requireAdmin, requireAdminPerm('bills.view')
     if (!p) return res.status(404).send('Not found');
     const canManage = req.admin.permissions.includes('transactions.reverse');
     res.send(adminShell('Bill Payment Detail', `<h1>Bill Payment ${esc(p.id).slice(0,8)}</h1><div class="metric-grid"><article><span>User</span><b>${esc(p.user_name)}</b><p>${esc(p.user_email)}</p></article><article><span>Biller</span><b>${esc(p.biller_name)}</b><p>${esc(p.category)}</p></article><article><span>Amount</span><b>${money(p.amount)}</b><p>${esc(p.currency)}</p></article><article><span>Status</span><b>${esc(p.status)}</b><p>${fmt(p.created_at)}</p></article></div><section class="panel"><h2>Details</h2><div class="info-grid"><p><b>Paid From</b><span>${esc(p.account_type)} · ${esc(p.account_no)}</span></p><p><b>${esc(p.reference_label)}</b><span>${esc(p.reference_number)}</span></p>${p.description?`<p><b>Description</b><span>${esc(p.description)}</span></p>`:''}${p.failure_reason?`<p><b>Failure/Reversal Reason</b><span>${esc(p.failure_reason)}</span></p>`:''}</div>${p.transaction_id?`<p><a class="btn small" href="${withAdminAccess(req,'/admin/transactions/'+p.transaction_id)}">View Underlying Transaction${canManage && p.status==='COMPLETED'?' / Reverse':''}</a></p>`:''}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/admin/vendor-payments', requireAdmin, requireAdminPerm('business.view'), async (req,res,next)=>{
+  try {
+    const status = String(req.query.status||''); const category = String(req.query.category||''); const params=[]; let where='';
+    if (status) { params.push(status); where += (where?' AND ':'WHERE ')+`vp.status=$${params.length}`; }
+    if (category && VENDOR_CATEGORIES.includes(category)) { params.push(category); where += (where?' AND ':'WHERE ')+`v.category=$${params.length}`; }
+    const rows = (await q(`SELECT vp.*, v.name vendor_name, v.category, u.name user_name, u.email user_email FROM vendor_payments vp JOIN vendors v ON v.id=vp.vendor_id JOIN users u ON u.id=vp.user_id ${where} ORDER BY vp.created_at DESC LIMIT 200`, params)).rows;
+    const list = rows.length ? `<table><tr><th>User</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr>${rows.map(r=>`<tr><td>${esc(r.user_name)}<br><small>${esc(r.user_email)}</small></td><td>${esc(r.vendor_name)}</td><td>${esc(r.category)}</td><td>${money(r.amount)} ${esc(r.currency)}</td><td><span class="status ${esc(String(r.status).toLowerCase())}">${esc(r.status)}</span></td><td>${fmt(r.created_at)}</td><td><a class="btn small" href="${withAdminAccess(req,'/admin/vendor-payments/'+r.id)}">View</a></td></tr>`).join('')}</table>` : '<p class="empty">No vendor payments match these filters.</p>';
+    const filterForm = `<form class="inline"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><select name="status"><option value="">All statuses</option>${['PENDING','COMPLETED','FAILED','CANCELLED','REVERSED'].map(x=>`<option ${status===x?'selected':''}>${x}</option>`).join('')}</select><select name="category"><option value="">All categories</option>${VENDOR_CATEGORIES.map(c=>`<option ${category===c?'selected':''}>${esc(c)}</option>`).join('')}</select><button class="btn">Filter</button></form>`;
+    res.send(adminShell('Vendor Payments', `<h1>Vendor Payments</h1><section class="panel">${filterForm}</section><section class="panel">${list}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/admin/scheduled-vendor-payments', requireAdmin, requireAdminPerm('business.view'), async (req,res,next)=>{
+  try {
+    const status = String(req.query.status||''); const params=[]; let where='';
+    if (status) { params.push(status); where = `WHERE svp.status=$${params.length}`; }
+    const rows = (await q(`SELECT svp.*, v.name vendor_name, u.name user_name, u.email user_email FROM scheduled_vendor_payments svp JOIN vendors v ON v.id=svp.vendor_id JOIN users u ON u.id=svp.user_id ${where} ORDER BY svp.created_at DESC LIMIT 200`, params)).rows;
+    const list = rows.length ? `<table><tr><th>User</th><th>Vendor</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Status</th></tr>${rows.map(r=>`<tr><td>${esc(r.user_name)}<br><small>${esc(r.user_email)}</small></td><td>${esc(r.vendor_name)}</td><td>${money(r.amount)} ${esc(r.currency)}</td><td>${esc(r.frequency)}</td><td>${fmt(r.next_run_date)}</td><td><span class="status">${esc(r.status)}</span>${r.last_failure_reason?`<br><small class="error-text">${esc(r.last_failure_reason)}</small>`:''}</td></tr>`).join('')}</table>` : '<p class="empty">No scheduled vendor payments match these filters.</p>';
+    const filterForm = `<form class="inline"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><select name="status"><option value="">All statuses</option>${['active','paused','cancelled'].map(x=>`<option ${status===x?'selected':''}>${x}</option>`).join('')}</select><button class="btn">Filter</button></form>`;
+    res.send(adminShell('Scheduled Vendor Payments', `<h1>Scheduled Vendor Payments</h1><section class="panel">${filterForm}</section><section class="panel">${list}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/admin/vendor-payments/:id', requireAdmin, requireAdminPerm('business.view'), async (req,res,next)=>{
+  try {
+    const p = await one('SELECT vp.*, v.name vendor_name, v.category, v.account_reference, u.name user_name, u.email user_email, a.type account_type, a.account_no FROM vendor_payments vp JOIN vendors v ON v.id=vp.vendor_id JOIN users u ON u.id=vp.user_id JOIN accounts a ON a.id=vp.account_id WHERE vp.id=$1', [req.params.id]);
+    if (!p) return res.status(404).send('Not found');
+    const canManage = req.admin.permissions.includes('transactions.reverse');
+    res.send(adminShell('Vendor Payment Detail', `<h1>Vendor Payment ${esc(p.id).slice(0,8)}</h1><div class="metric-grid"><article><span>User</span><b>${esc(p.user_name)}</b><p>${esc(p.user_email)}</p></article><article><span>Vendor</span><b>${esc(p.vendor_name)}</b><p>${esc(p.category)}</p></article><article><span>Amount</span><b>${money(p.amount)}</b><p>${esc(p.currency)}</p></article><article><span>Status</span><b>${esc(p.status)}</b><p>${fmt(p.created_at)}</p></article></div><section class="panel"><h2>Details</h2><div class="info-grid"><p><b>Paid From</b><span>${esc(p.account_type)} · ${esc(p.account_no)}</span></p>${p.description?`<p><b>Description</b><span>${esc(p.description)}</span></p>`:''}${p.failure_reason?`<p><b>Failure/Reversal Reason</b><span>${esc(p.failure_reason)}</span></p>`:''}</div>${p.transaction_id?`<p><a class="btn small" href="${withAdminAccess(req,'/admin/transactions/'+p.transaction_id)}">View Underlying Transaction${canManage && p.status==='COMPLETED'?' / Reverse':''}</a></p>`:''}</section>`, req));
   } catch (e) { next(e); }
 });
 app.get('/admin/billers', requireAdmin, requireAdminPerm('bills.view'), async (req,res,next)=>{
