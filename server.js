@@ -404,9 +404,11 @@ async function getAdmin(req) {
   return admin;
 }
 app.use(async (req, res, next) => { try { req.user = await getCustomer(req); req.admin = await getAdmin(req); res.locals.user = req.user; res.locals.admin = req.admin; next(); } catch (e) { next(e); } });
-const PENDING_ACCOUNT_ALLOWLIST = ['/dashboard/kyc', '/dashboard/profile', '/dashboard/security', '/dashboard/settings'];
+const PENDING_ACCOUNT_ALLOWLIST_EXACT = ['/dashboard'];
+const PENDING_ACCOUNT_ALLOWLIST_PREFIX = ['/dashboard/kyc', '/dashboard/profile', '/dashboard/security', '/dashboard/settings', '/dashboard/accounts', '/dashboard/transactions', '/dashboard/notifications', '/dashboard/refer', '/dashboard/insights', '/dashboard/statements', '/support/chat'];
 function pendingAccountAllowed(path) {
-  return PENDING_ACCOUNT_ALLOWLIST.some(p => path === p || path.startsWith(p + '/'));
+  if (PENDING_ACCOUNT_ALLOWLIST_EXACT.includes(path)) return true;
+  return PENDING_ACCOUNT_ALLOWLIST_PREFIX.some(p => path === p || path.startsWith(p + '/'));
 }
 function requireCustomer(req,res,next) {
   noStore(res);
