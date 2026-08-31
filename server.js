@@ -205,6 +205,8 @@ async function initDb() {
   await ensureColumn('users', 'theme_preference', "TEXT NOT NULL DEFAULT 'light'");
   await ensureColumn('users', 'country', 'TEXT');
   await ensureColumn('users', 'city', 'TEXT');
+  await ensureColumn('users', 'password_reset_token', 'TEXT');
+  await ensureColumn('users', 'password_reset_sent_at', 'TEXT');
   await ensureColumn('transactions', 'fee', 'NUMERIC(18,2) NOT NULL DEFAULT 0');
   await ensureColumn('transactions', 'status', "TEXT NOT NULL DEFAULT 'completed'");
   await ensureColumn('transactions', 'reference', 'TEXT');
@@ -966,7 +968,53 @@ app.post('/login/2fa', rateLimit({ windowMs:15*60*1000, max:8, standardHeaders:t
     await completeCustomerLogin(req, res, user, { remember:payload.remember, next:payload.next, via2fa:true });
   } catch (e) { next(e); }
 });
-app.get('/forgot-password', (req,res) => res.send(publicPage('Forgot password', '<section class="auth-card"><h1>Forgot password</h1><p>Password reset is ready for email-provider integration. Authorized admins can reset customer passwords from the private admin portal.</p><a class="btn" href="/login">Back to sign in</a></section>', req)));
+function forgotPasswordPage(req, { notice='', error='' } = {}) { return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Forgot Password | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="auth-page"><main class="auth-split"><section class="auth-visual"><a class="brand" href="/">${logo()}</a><div><span class="kicker">Account recovery</span><h1>Forgot your password?</h1><p>Enter the email address on your account and we'll send you a link to reset your password.</p></div></section><section class="auth-panel"><div class="auth-card modern"><div class="brand mobile-brand">${logo()}</div><h2>Reset your password</h2>${notice?`<p class="notice">${notice}</p>`:''}${error?`<p class="error-text">${esc(error)}</p>`:''}<form method="post" action="/forgot-password"><label>Email address<input name="email" type="email" required autocomplete="username" autofocus></label><button class="btn wide">Send reset link</button></form><p class="center small-copy"><a href="/login">Back to sign in</a></p></div></section></main><script src="/assets/app.js"></script></body></html>`; }
+app.get('/forgot-password', (req,res) => res.send(forgotPasswordPage(req)));
+app.post('/forgot-password', rateLimit({ windowMs:15*60*1000, max:10, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = z.object({ email:z.string().email() }).parse(req.body);
+    const user = await one('SELECT * FROM users WHERE email=$1 AND status=$2', [normalizeLoginEmail(p.email), 'enabled']);
+    let devLink = null;
+    if (user) {
+      const token = crypto.randomBytes(24).toString('hex');
+      await q('UPDATE users SET password_reset_token=$1, password_reset_sent_at=$2 WHERE id=$3', [token, nowIso(), user.id]);
+      const resetUrl = `${APP_URL}/reset-password/${token}`;
+      const result = await emailService.sendPasswordReset(user.email, resetUrl);
+      if (!result.sent) devLink = resetUrl;
+      await audit({ ...req, user:{ id:user.id } }, 'PASSWORD_RESET_REQUESTED', 'user', user.id, {});
+    }
+    const notice = devLink
+      ? `Email delivery is not configured on this server. For testing, use this link: <a href="${devLink}">Reset password</a>`
+      : "If that email belongs to a Vespera Bank account, we've sent a password reset link to it.";
+    res.send(forgotPasswordPage(req, { notice }));
+  } catch (e) { if (e instanceof z.ZodError) return res.send(forgotPasswordPage(req, { error:'Please enter a valid email address.' })); next(e); }
+});
+function resetPasswordPage(req, token, error='') { return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Set New Password | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="auth-page"><main class="auth-split"><section class="auth-visual"><a class="brand" href="/">${logo()}</a><div><span class="kicker">Account recovery</span><h1>Set a new password.</h1><p>Choose a new password for your Vespera Bank account.</p></div></section><section class="auth-panel"><div class="auth-card modern"><div class="brand mobile-brand">${logo()}</div><h2>Set a new password</h2>${error?`<p class="error-text">${esc(error)}</p>`:''}<form method="post" action="/reset-password/${esc(token)}"><label>New Password<input name="password" type="password" minlength="8" required autocomplete="new-password"></label><label>Confirm Password<input name="confirmPassword" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn wide">Set new password</button></form></section></main><script src="/assets/app.js"></script></body></html>`; }
+async function userByResetToken(token) {
+  const user = await one('SELECT id, password_reset_sent_at FROM users WHERE password_reset_token=$1', [token]);
+  if (!user) return { user:null, expired:false };
+  const expired = Date.now() - new Date(user.password_reset_sent_at).getTime() > 60*60*1000;
+  return { user, expired };
+}
+app.get('/reset-password/:token', async (req,res) => {
+  const { user, expired } = await userByResetToken(req.params.token);
+  if (!user) { res.cookie('login_notice', 'This password reset link is invalid or has already been used.', noticeCookieOptions(req, 60*1000)); return res.redirect('/login'); }
+  if (expired) { res.cookie('login_notice', 'This password reset link has expired. Please request a new one.', noticeCookieOptions(req, 60*1000)); return res.redirect('/login'); }
+  res.send(resetPasswordPage(req, req.params.token));
+});
+app.post('/reset-password/:token', rateLimit({ windowMs:15*60*1000, max:20, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = z.object({ password:z.string().min(8).max(120), confirmPassword:z.string() }).refine(v=>v.password===v.confirmPassword, { message:'Passwords do not match' }).parse(req.body);
+    const { user, expired } = await userByResetToken(req.params.token);
+    if (!user) { res.cookie('login_notice', 'This password reset link is invalid or has already been used.', noticeCookieOptions(req, 60*1000)); return res.redirect('/login'); }
+    if (expired) { res.cookie('login_notice', 'This password reset link has expired. Please request a new one.', noticeCookieOptions(req, 60*1000)); return res.redirect('/login'); }
+    await q('UPDATE users SET password_hash=$1, password_reset_token=NULL, password_reset_sent_at=NULL WHERE id=$2', [await bcrypt.hash(p.password, 12), user.id]);
+    await q('DELETE FROM sessions WHERE user_id=$1', [user.id]);
+    await audit({ ...req, user:{ id:user.id } }, 'PASSWORD_RESET_COMPLETED', 'user', user.id, {});
+    res.cookie('login_notice', 'Your password has been reset. Please sign in with your new password.', noticeCookieOptions(req, 60*1000));
+    res.redirect('/login');
+  } catch (e) { if (e instanceof z.ZodError) return res.send(resetPasswordPage(req, req.params.token, e.issues[0]?.message || 'Please check the form.')); next(e); }
+});
 app.post('/logout', requireCustomer, async (req,res) => { await audit(req, 'logout', 'session', req.signedCookies.sid, {}); await q('DELETE FROM sessions WHERE id=$1', [req.signedCookies.sid || req.body._access]); res.clearCookie('sid', clearCookieOptions(req)); res.redirect('/login'); });
 app.get('/logout', requireCustomer, async (req,res) => { const sid = req.signedCookies.sid || req.query.access; await audit(req, 'logout', 'session', sid, { method:'GET' }); await q('DELETE FROM sessions WHERE id=$1', [sid]); res.clearCookie('sid', clearCookieOptions(req)); res.redirect('/login'); });
 
@@ -1135,7 +1183,7 @@ const emailService = {
   async sendTransactionNotification(transfer, event) { const subj = notificationSubject(transfer, event); return this.send({ to: transfer.user_email, subject: subj, html: emailLayout({ heading: subj.replace(/^Vespera Bank — /,'').split(' (')[0], bodyHtml: transferSummaryBlock(transfer, event) }) }); },
   async sendTransactionReceipt(transfer) { return this.send({ to: transfer.user_email, subject: `Your Vespera Bank receipt — ${transfer.reference || String(transfer.id).slice(0,8).toUpperCase()}`, html: emailLayout({ heading:'Transaction Receipt', bodyHtml: receiptSectionHtml(transfer) }) }); },
   async sendEmailVerification(email, token) { return this.send({ to:email, subject:'Verify your Vespera Bank email address', html: emailLayout({ heading:'Verify your email', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Please confirm this email address is yours.</p><p style="text-align:center;margin:0 0 20px;"><a href="${APP_URL}/verify-email/${token}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Verify email address</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 24 hours. If you didn't create a Vespera Bank account, you can ignore this email.</p>` }) }); },
-  async sendPasswordReset(email, resetUrl) { return this.send({ to:email, subject:'Reset your Vespera Bank administrator password', html: emailLayout({ heading:'Reset your password', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset the password for your Vespera Bank administrator account.</p><p style="text-align:center;margin:0 0 20px;"><a href="${resetUrl}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Reset password</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password will not be changed.</p>` }) }); }
+  async sendPasswordReset(email, resetUrl, { admin=false } = {}) { return this.send({ to:email, subject:`Reset your Vespera Bank ${admin?'administrator ':''}password`, html: emailLayout({ heading:'Reset your password', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset the password for your Vespera Bank ${admin?'administrator ':''}account.</p><p style="text-align:center;margin:0 0 20px;"><a href="${resetUrl}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Reset password</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password will not be changed.</p>` }) }); }
 };
 function smsConfigured() { return Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER); }
 let twilioClient = null;
@@ -2574,7 +2622,7 @@ app.post('/admin/forgot-password', rateLimit({ windowMs:15*60*1000, max:10, stan
       const token = crypto.randomBytes(24).toString('hex');
       await q('UPDATE admin_users SET password_reset_token=$1, password_reset_sent_at=$2 WHERE id=$3', [token, nowIso(), admin.id]);
       const resetUrl = `${APP_URL}/admin/reset-password/${token}`;
-      const result = await emailService.sendPasswordReset(admin.email, resetUrl);
+      const result = await emailService.sendPasswordReset(admin.email, resetUrl, { admin:true });
       if (!result.sent) devLink = resetUrl;
       await audit(req, 'ADMIN_PASSWORD_RESET_REQUESTED', 'admin_user', admin.id, {});
     }
