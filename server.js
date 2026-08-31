@@ -1075,9 +1075,14 @@ function transferSummaryBlock(transfer, event) {
   const rows = buildReceiptFields(transfer);
   return `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Your ${esc(transfer.transfer_type)} transfer is now <b>${esc(event)}</b>.</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 20px;">${rows.slice(0,7).map(([label,val])=>`<tr><td style="padding:6px 0;font-size:13px;color:#5b554f;">${esc(label)}</td><td style="padding:6px 0;font-size:13px;color:#201f1d;text-align:right;font-weight:700;">${esc(String(val))}</td></tr>`).join('')}</table><p style="text-align:center;margin:0;"><a href="${APP_URL}/dashboard/transfers/${transfer.id}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">View Transfer</a></p>`;
 }
+function isUndeliverableTestDomain(email) {
+  const domain = String(email || '').split('@')[1]?.toLowerCase() || '';
+  return domain === 'test' || domain.endsWith('.test') || domain === 'example' || domain.endsWith('.example') || domain === 'invalid' || domain.endsWith('.invalid') || domain === 'localhost';
+}
 const emailService = {
   async send({ to, subject, html }) {
     if (!emailConfigured()) { console.log(`[email:not_configured] to=${to} subject=${JSON.stringify(subject)}`); return { sent:false, skipped:true }; }
+    if (isUndeliverableTestDomain(to)) { console.log(`[email:reserved_test_domain] to=${to} subject=${JSON.stringify(subject)}`); return { sent:false, skipped:true }; }
     try {
       const r = await getResendClient().emails.send({ from: RESEND_FROM_EMAIL, to, subject, html });
       if (r.error) { console.error('[email:error]', r.error.message); return { sent:false, error:r.error.message }; }
