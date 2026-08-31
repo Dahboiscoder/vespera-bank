@@ -86,7 +86,10 @@ async function fundEverydayAccount(u, amount) {
   const u = await registerCustomer('Profile Customer');
   let r = await fetch(base+`/dashboard/profile?access=${u.access}`,{headers:{cookie:u.cookie}});
   let html = await r.text();
-  assert.ok(html.includes('action="/dashboard/profile/edit'), 'Edit Profile must be a real form, not a dead button');
+  assert.ok(html.includes(`href="/dashboard/profile?edit=1`), 'Edit Profile must be a real link into edit mode, not a dead button');
+  r = await fetch(base+`/dashboard/profile?edit=1&access=${u.access}`,{headers:{cookie:u.cookie}});
+  html = await r.text();
+  assert.ok(html.includes('action="/dashboard/profile/edit'), 'Edit mode must render a real form, not a dead button');
   const csrf = html.match(/name="_csrf" value="([^"]+)"/)[1];
   r = await fetch(base+`/dashboard/profile/edit?access=${u.access}`,{method:'POST',headers:{cookie:u.cookie,'content-type':'application/x-www-form-urlencoded'},body:form({_csrf:csrf,_access:u.access,first_name:'Updated',last_name:'Name',phone:'+15559990000',country:'Kenya',city:'Nairobi'}),redirect:'manual'});
   assert.equal(r.status, 302);
