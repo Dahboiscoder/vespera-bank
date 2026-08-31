@@ -21,10 +21,9 @@ await fetch(base + `/admin/balances/${accountId}/adjust`, { method:'POST', heade
 
 r = await fetch(base + `/dashboard/transactions?access=${access}`, { headers:{cookie} });
 html = await r.text();
-assert.ok(html.includes('>Money In<'));
-assert.ok(html.includes('>Money Out<'));
-assert.ok(html.includes('$300.00'), 'the funded deposit should show in the Money In column');
-console.log('Transactions ledger shows explicit Money In / Money Out columns');
+assert.ok(html.includes('activity-amount pos'), 'credits must be visually distinguished from debits');
+assert.ok(html.includes('+$300.00'), 'the funded deposit should show as a credit with a + sign');
+console.log('Transactions activity feed visually distinguishes money in from money out');
 
 r = await fetch(base + `/dashboard/statements?access=${access}`, { headers:{cookie} });
 html = await r.text();

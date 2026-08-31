@@ -64,7 +64,7 @@ assert.ok(!html.includes('No transactions yet. Your account balance is $0.00 unt
 r = await fetch(base+`/dashboard/transactions?access=${c.access}`, { headers:{cookie:c.cookie} });
 html = await r.text();
 assert.ok(html.includes('Activity'));
-assert.ok(html.includes('Transfer, Deposit &amp; Withdrawal Requests'));
+assert.ok(html.includes('activity-list'), 'existing money-movement requests must show in the unified activity feed');
 r = await fetch(base+`/dashboard/transfers/sepa?access=${c.access}`, { headers:{cookie:c.cookie} });
 html = await r.text();
 assert.ok(html.includes('SEPA Transfer'));
