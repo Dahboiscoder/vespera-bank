@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import pg from 'pg';
 import { Resend } from 'resend';
+import twilio from 'twilio';
 import multer from 'multer';
 
 const PORT = process.env.PORT || 3000;
@@ -22,6 +23,9 @@ const APP_URL = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, 
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Vespera Bank <notifications@vesperabank.test>';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-flash-lite-latest';
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
 if (!DATABASE_URL) throw new Error('DATABASE_URL is required — set it to a Postgres connection string (e.g. from Neon).');
 const dbPool = new pg.Pool({ connectionString: DATABASE_URL, ssl: DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false } });
@@ -247,6 +251,9 @@ async function initDb() {
   await ensureColumn('users', 'twofa_enabled_at', 'TEXT');
   await ensureColumn('users', 'twofa_pending_secret', 'TEXT');
   await ensureColumn('users', 'login_alerts_enabled', "TEXT NOT NULL DEFAULT 'yes'");
+  await ensureColumn('users', 'sms_alerts_enabled', "TEXT NOT NULL DEFAULT 'no'");
+  await ensureColumn('transfer_notifications', 'channel', "TEXT NOT NULL DEFAULT 'email'");
+  await ensureColumn('transfer_notifications', 'recipient_phone', 'TEXT');
   await ensureColumn('loans', 'term_months', 'INTEGER');
   await ensureColumn('loans', 'purpose', 'TEXT');
   await ensureColumn('loans', 'monthly_payment', 'NUMERIC(18,2)');
@@ -1022,6 +1029,26 @@ const emailService = {
   async sendTransactionReceipt(transfer) { return this.send({ to: transfer.user_email, subject: `Your Vespera Bank receipt — ${transfer.reference || String(transfer.id).slice(0,8).toUpperCase()}`, html: emailLayout({ heading:'Transaction Receipt', bodyHtml: receiptSectionHtml(transfer) }) }); },
   async sendEmailVerification(email, token) { return this.send({ to:email, subject:'Verify your Vespera Bank email address', html: emailLayout({ heading:'Verify your email', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Please confirm this email address is yours.</p><p style="text-align:center;margin:0 0 20px;"><a href="${APP_URL}/verify-email/${token}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Verify email address</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 24 hours. If you didn't create a Vespera Bank account, you can ignore this email.</p>` }) }); }
 };
+function smsConfigured() { return Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER); }
+let twilioClient = null;
+function getTwilioClient() { if (!twilioClient) twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN); return twilioClient; }
+function normalizePhoneE164(phone) {
+  const trimmed = String(phone || '').replace(/[\s\-().]/g, '');
+  return /^\+[1-9]\d{7,14}$/.test(trimmed) ? trimmed : null;
+}
+const smsService = {
+  async send(toPhone, body) {
+    if (!smsConfigured()) { console.log(`[sms:not_configured] to=${toPhone} body=${JSON.stringify(body)}`); return { sent:false, skipped:true }; }
+    const to = normalizePhoneE164(toPhone);
+    if (!to) { console.log(`[sms:invalid_number] to=${toPhone}`); return { sent:false, error:'Invalid phone number format' }; }
+    try {
+      const msg = await getTwilioClient().messages.create({ to, from: TWILIO_PHONE_NUMBER, body });
+      return { sent:true, id: msg.sid };
+    } catch (e) { console.error('[sms:exception]', e.message); return { sent:false, error: e.message }; }
+  },
+  async sendVerificationCode(phone, code) { return this.send(phone, `Vespera Bank: your verification code is ${code}. It expires in 10 minutes. Never share this code with anyone.`); },
+  async sendTransactionNotification(transfer, event) { return this.send(transfer.user_phone, `Vespera Bank: your ${transfer.transfer_type} of ${money(transfer.amount)} ${transfer.currency} is now ${event}. Ref ${transfer.reference || String(transfer.id).slice(0,8).toUpperCase()}.`); }
+};
 const REQUIRES_VERIFICATION = ['SEPA','Wire','Internal','Deposit','Withdrawal'];
 const SEND_TYPES = ['SEPA','Wire','Withdrawal'];
 const REFERRAL_REWARD_AMOUNT = 10;
@@ -1064,6 +1091,7 @@ async function issueVerificationCode(req, d, idempotencyKey) {
   await q('INSERT INTO verification_codes (id,user_id,purpose,code_hash,context_hash,idempotency_key,attempts,max_attempts,status,expires_at,last_sent_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [id, req.user.id, 'transfer', hashCode(code), transferContextHash(d), idempotencyKey, 0, 5, 'pending', new Date(Date.now()+10*60*1000).toISOString(), nowIso(), nowIso()]);
   await audit(req, 'VERIFICATION_CODE_REQUESTED', 'verification_code', id, { purpose:'transfer', transfer_type:d.transfer_type });
   const result = await emailService.sendVerificationCode(req.user.email, code);
+  if (req.user.phone) smsService.sendVerificationCode(req.user.phone, code).catch(()=>{});
   return { id, devCode: result.sent ? null : code };
 }
 async function latestPendingCode(req, idempotencyKey) {
@@ -1091,22 +1119,26 @@ async function verifyTransferCode(req, idempotencyKey, submittedCode, d) {
   await audit(req, 'VERIFICATION_CODE_VERIFIED', 'verification_code', row.id, { purpose:'transfer' });
   return { ok:true };
 }
-async function recordNotification(transferId, kind, event, recipientEmail, result, initiatedBy='system') {
+async function recordNotification(transferId, kind, event, recipientEmail, result, initiatedBy='system', channel='email', recipientPhone=null) {
   const status = result.sent ? 'sent' : result.skipped ? 'skipped_not_configured' : 'failed';
-  await q('INSERT INTO transfer_notifications (id,transfer_id,kind,event,recipient_email,status,provider_message_id,error_message,initiated_by,attempted_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [uid(), transferId, kind, event, recipientEmail, status, result.id || null, result.error || null, initiatedBy, nowIso(), nowIso()]);
+  await q('INSERT INTO transfer_notifications (id,transfer_id,kind,event,recipient_email,recipient_phone,channel,status,provider_message_id,error_message,initiated_by,attempted_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)', [uid(), transferId, kind, event, recipientEmail, recipientPhone, channel, status, result.id || null, result.error || null, initiatedBy, nowIso(), nowIso()]);
   return status;
 }
 async function notifyTransferEvent(transfer, event, initiatedBy='system') {
   const result = await emailService.sendTransactionNotification(transfer, event);
-  await recordNotification(transfer.id, 'status', event, transfer.user_email, result, initiatedBy);
+  await recordNotification(transfer.id, 'status', event, transfer.user_email, result, initiatedBy, 'email');
+  if (transfer.sms_alerts_enabled === 'yes' && transfer.user_phone) {
+    const smsResult = await smsService.sendTransactionNotification(transfer, event);
+    await recordNotification(transfer.id, 'status', event, transfer.user_email, smsResult, initiatedBy, 'sms', transfer.user_phone);
+  }
   return result;
 }
 async function sendReceiptEmail(transfer, initiatedBy='system') {
   const result = await emailService.sendTransactionReceipt(transfer);
-  await recordNotification(transfer.id, 'receipt', 'Completed', transfer.user_email, result, initiatedBy);
+  await recordNotification(transfer.id, 'receipt', 'Completed', transfer.user_email, result, initiatedBy, 'email');
   return result;
 }
-async function getTransferWithUser(id) { return one('SELECT tr.*, u.email user_email, u.name user_name FROM transfers tr JOIN users u ON u.id=tr.user_id WHERE tr.id=$1', [id]); }
+async function getTransferWithUser(id) { return one('SELECT tr.*, u.email user_email, u.name user_name, u.phone user_phone, u.sms_alerts_enabled FROM transfers tr JOIN users u ON u.id=tr.user_id WHERE tr.id=$1', [id]); }
 const transferSchema = z.object({ transfer_type:z.enum(['SEPA','Wire','Internal','Deposit','Withdrawal']), recipient_name:z.string().min(2).max(120), recipient_address:z.string().max(240).optional(), bank_name:z.string().max(120).optional(), bank_address:z.string().max(240).optional(), account_iban:z.string().min(4).max(40), swift_bic:z.string().max(20).optional(), routing_number:z.string().max(40).optional(), country:z.string().max(80).optional(), amount:z.coerce.number().positive().max(10000000), currency:z.string().length(3), reference:z.string().max(80).optional(), purpose:z.string().min(3).max(240), idempotency_key:z.string().uuid().optional(), confirm:z.string().optional() });
 function transferNav(req){ return `<div class="transfer-nav"><a href="${withAccess(req,'/dashboard/transfers/sepa')}">SEPA Transfer</a><a href="${withAccess(req,'/dashboard/transfers/wire')}">Wire Transfer</a><a href="${withAccess(req,'/dashboard/transfers/internal')}">Internal Transfer</a><a href="${withAccess(req,'/dashboard/transfers/deposit')}">Deposit</a><a href="${withAccess(req,'/dashboard/transfers/withdraw')}">Withdraw Request</a><a href="${withAccess(req,'/dashboard/standing-orders')}">Standing Orders</a><a href="${withAccess(req,'/dashboard/transfers/history')}">Transfer History</a></div>`; }
 const TRANSFER_TYPE_ROUTE = { SEPA:'sepa', Wire:'wire', Internal:'internal', Withdrawal:'withdraw' };
@@ -1506,8 +1538,9 @@ app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await pro
         : `<p>Add an extra layer of security by requiring a 6-digit code from an authenticator app every time you sign in.</p><form method="post" action="${withAccess(req,'/dashboard/security/2fa/start')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn">Set Up 2FA</button></form>`
     }</section>`;
     const loginAlertsPanel = `<section class="panel"><h2>Login Alerts</h2><p>Get an in-app notification whenever your account is signed into.</p><form class="inline" method="post" action="${withAccess(req,'/dashboard/security/login-alerts')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label class="check"><input type="checkbox" name="enabled" value="yes" ${req.user.login_alerts_enabled!=='no'?'checked':''}> Notify me on every sign-in</label><button class="btn small secondary">Save</button></form></section>`;
+    const smsAlertsPanel = `<section class="panel"><h2>SMS Alerts</h2><p>Get a text message when a transfer is initiated, completed or fails, in addition to email. Verification codes for SEPA, Wire and Withdrawal transfers are always texted to you as a backup to email when a phone number is on file.</p>${!smsConfigured()?'<p class="notice">SMS delivery is not configured on this server yet, so alerts are logged but not actually sent.</p>':''}${!req.user.phone?`<p class="notice">Add a phone number in your <a href="${withAccess(req,'/dashboard/profile')}">profile</a> to receive SMS alerts.</p>`:''}<form class="inline" method="post" action="${withAccess(req,'/dashboard/security/sms-alerts')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label class="check"><input type="checkbox" name="enabled" value="yes" ${req.user.sms_alerts_enabled==='yes'?'checked':''}> Text me for transfer status updates</label><button class="btn small secondary">Save</button></form></section>`;
     const activityRows = loginActivity.length ? loginActivity.map(a=>`<tr><td>${esc((a.user_agent||'Unknown device').slice(0,60))}</td><td>${esc(a.ip||'—')}</td><td>${fmt(a.created_at)}</td></tr>`).join('') : `<tr><td colspan="3" class="empty">No recorded sign-ins yet.</td></tr>`;
-    content = `<section class="page-head"><h2>Security Overview</h2><p>Your account security status and trusted access controls.</p></section><section class="security-dashboard"><div><span>Your Security Score</span><h2>${scoreLabel}</h2><div class="score-line"><i style="width:${score}%"></i></div></div><div class="score-circle">${score}<small>/100</small></div></section>${badges}<section class="panel"><h2>Email Verification</h2>${req.query.emailResent?(emailConfigured()?'<p class="notice">Verification email sent.</p>':'<p class="notice">Email delivery is not configured on this server, so no real email was sent. Use the testing link below to verify instead.</p>'):''}${req.query.emailCooldown?`<p class="error-text">Please wait ${esc(req.query.emailCooldown)}s before requesting another email.</p>`:''}<p>${req.user.email_verified_at?'Your email address is verified.':'Please verify your email address to unlock all account features.'}</p>${!req.user.email_verified_at && !emailConfigured() && req.user.email_verify_token?`<p class="notice">Email delivery is not configured on this server. For testing, use this link: <a href="/verify-email/${esc(req.user.email_verify_token)}">Verify email address</a></p>`:''}${!req.user.email_verified_at?`<form method="post" action="${withAccess(req,'/dashboard/security/verify-email/resend')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn secondary">Resend verification email</button></form>`:''}</section><section class="panel"><h2>Transaction PIN</h2>${req.query.pinUpdated?'<p class="notice">Your transaction PIN has been saved.</p>':''}<p>${req.user.transaction_pin_hash?'Your transaction PIN is set. It is required, along with an emailed one-time code, to authorize every transfer, deposit and withdrawal.':'Set a 4-digit transaction PIN. Once set, it will be required — together with an emailed one-time code — to authorize every transfer, deposit and withdrawal.'}</p><form class="inline" method="post" action="${withAccess(req,'/dashboard/security/pin')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Current account password<input name="password" type="password" required autocomplete="current-password"></label><label>${req.user.transaction_pin_hash?'New ':''}4-digit PIN<input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required autocomplete="off"></label><label>Confirm PIN<input name="confirmPin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required autocomplete="off"></label><button class="btn">${req.user.transaction_pin_hash?'Change PIN':'Set PIN'}</button></form></section>${twofaPanel}${loginAlertsPanel}<section class="panel"><h2>Recent login activity</h2><table><tr><th>Device</th><th>IP Address</th><th>Date</th></tr>${activityRows}</table></section>`;
+    content = `<section class="page-head"><h2>Security Overview</h2><p>Your account security status and trusted access controls.</p></section><section class="security-dashboard"><div><span>Your Security Score</span><h2>${scoreLabel}</h2><div class="score-line"><i style="width:${score}%"></i></div></div><div class="score-circle">${score}<small>/100</small></div></section>${badges}<section class="panel"><h2>Email Verification</h2>${req.query.emailResent?(emailConfigured()?'<p class="notice">Verification email sent.</p>':'<p class="notice">Email delivery is not configured on this server, so no real email was sent. Use the testing link below to verify instead.</p>'):''}${req.query.emailCooldown?`<p class="error-text">Please wait ${esc(req.query.emailCooldown)}s before requesting another email.</p>`:''}<p>${req.user.email_verified_at?'Your email address is verified.':'Please verify your email address to unlock all account features.'}</p>${!req.user.email_verified_at && !emailConfigured() && req.user.email_verify_token?`<p class="notice">Email delivery is not configured on this server. For testing, use this link: <a href="/verify-email/${esc(req.user.email_verify_token)}">Verify email address</a></p>`:''}${!req.user.email_verified_at?`<form method="post" action="${withAccess(req,'/dashboard/security/verify-email/resend')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn secondary">Resend verification email</button></form>`:''}</section><section class="panel"><h2>Transaction PIN</h2>${req.query.pinUpdated?'<p class="notice">Your transaction PIN has been saved.</p>':''}<p>${req.user.transaction_pin_hash?'Your transaction PIN is set. It is required, along with an emailed one-time code, to authorize every transfer, deposit and withdrawal.':'Set a 4-digit transaction PIN. Once set, it will be required — together with an emailed one-time code — to authorize every transfer, deposit and withdrawal.'}</p><form class="inline" method="post" action="${withAccess(req,'/dashboard/security/pin')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Current account password<input name="password" type="password" required autocomplete="current-password"></label><label>${req.user.transaction_pin_hash?'New ':''}4-digit PIN<input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required autocomplete="off"></label><label>Confirm PIN<input name="confirmPin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required autocomplete="off"></label><button class="btn">${req.user.transaction_pin_hash?'Change PIN':'Set PIN'}</button></form></section>${twofaPanel}${loginAlertsPanel}${smsAlertsPanel}<section class="panel"><h2>Recent login activity</h2><table><tr><th>Device</th><th>IP Address</th><th>Date</th></tr>${activityRows}</table></section>`;
   }
   else if (s==='notifications') {
     const list = notificationRows.length ? `<div class="notification-list">${notificationRows.map(n=>`<article class="notification-item"><h3>${esc(n.title)}</h3><p>${esc(n.body)}</p><small>${fmt(n.created_at)}</small></article>`).join('')}</div>` : `<section class="panel empty-pro"><h3>No notifications yet</h3><p>Account and transaction alerts will appear here.</p></section>`;
@@ -1838,6 +1871,12 @@ app.post('/dashboard/security/login-alerts', requireCustomer, async (req,res) =>
   const enabled = req.body.enabled === 'yes' ? 'yes' : 'no';
   await q('UPDATE users SET login_alerts_enabled=$1 WHERE id=$2', [enabled, req.user.id]);
   await audit(req, 'LOGIN_ALERTS_UPDATED', 'user', req.user.id, { enabled });
+  res.redirect(withAccess(req, '/dashboard/security'));
+});
+app.post('/dashboard/security/sms-alerts', requireCustomer, async (req,res) => {
+  const enabled = req.body.enabled === 'yes' ? 'yes' : 'no';
+  await q('UPDATE users SET sms_alerts_enabled=$1 WHERE id=$2', [enabled, req.user.id]);
+  await audit(req, 'SMS_ALERTS_UPDATED', 'user', req.user.id, { enabled });
   res.redirect(withAccess(req, '/dashboard/security'));
 });
 const kycUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3*1024*1024, files: 3 }, fileFilter: (req,file,cb) => {
@@ -3003,7 +3042,7 @@ app.get('/admin/transfers/:id', requireAdmin, requireAdminPerm('transfers.view')
   const events=(await q('SELECT e.*, au.email admin_email FROM transfer_events e LEFT JOIN admin_users au ON au.id=e.admin_user_id WHERE e.transfer_id=$1 ORDER BY e.created_at',[t.id])).rows; const csrf=req.admin.csrf_token;
   const notifications=(await q('SELECT * FROM transfer_notifications WHERE transfer_id=$1 ORDER BY created_at DESC',[t.id])).rows;
   const canManage = req.admin.permissions.includes('transfers.manage');
-  res.send(adminShell('Transfer Detail', `<h1>Transfer ${esc(t.id).slice(0,8)}</h1><div class="metric-grid"><article><span>User</span><b>${esc(t.name)}</b><p>${esc(t.email)}</p></article><article><span>Recipient</span><b>${esc(t.recipient_name)}</b><p>${esc(t.account_iban||'')}</p></article><article><span>Amount</span><b>${money(t.amount)}</b><p>${esc(t.currency)} · Fee ${money(t.fee)}</p></article><article><span>Status</span><b>${esc(t.status)}</b><p>${esc(t.provider_reference||'No provider reference')}</p></article></div><section class="panel"><h2>Administrative Review</h2><form class="inline" method="post" action="/admin/transfers/${t.id}/action"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<select name="action"><option value="approve">Approve</option><option value="reject">Reject</option><option value="hold">Place on Hold</option><option value="review">Request Review</option><option value="complete">Mark Completed</option><option value="fail">Mark Failed</option><option value="cancel">Cancel</option></select><input name="reason" placeholder="Reason required for reject/hold/review/fail/cancel"><label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm action</label><button class="btn">Apply</button></form></section><section class="panel"><h2>Notifications &amp; Receipt</h2><p>Receipt generated: ${t.receipt_generated_at?fmt(t.receipt_generated_at):'Not yet'}</p><table><tr><th>Kind</th><th>Event</th><th>Status</th><th>Attempted</th></tr>${notifications.map(n=>`<tr><td>${esc(n.kind)}</td><td>${esc(n.event)}</td><td><span class="status ${n.status==='sent'?'completed':n.status==='failed'?'disabled':''}">${esc(n.status)}</span></td><td>${fmt(n.attempted_at)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No notifications yet.</td></tr>'}</table>${canManage?`<form class="inline" method="post" action="/admin/transfers/${t.id}/notifications/resend"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<select name="kind"><option value="status">Status notification</option><option value="receipt">Receipt</option></select><label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm resend</label><button class="btn small">Resend</button></form>`:''}</section><section class="panel"><h2>Event Timeline</h2>${events.map(e=>`<p class="notice"><b>${esc(e.event)}</b> ${esc(e.previous_status||'')} → ${esc(e.new_status||'')}<br>${esc(e.reason||'')} · ${esc(e.admin_email||'system')} · ${fmt(e.created_at)}</p>`).join('')||'<p class="empty">No events.</p>'}</section>`, req));
+  res.send(adminShell('Transfer Detail', `<h1>Transfer ${esc(t.id).slice(0,8)}</h1><div class="metric-grid"><article><span>User</span><b>${esc(t.name)}</b><p>${esc(t.email)}</p></article><article><span>Recipient</span><b>${esc(t.recipient_name)}</b><p>${esc(t.account_iban||'')}</p></article><article><span>Amount</span><b>${money(t.amount)}</b><p>${esc(t.currency)} · Fee ${money(t.fee)}</p></article><article><span>Status</span><b>${esc(t.status)}</b><p>${esc(t.provider_reference||'No provider reference')}</p></article></div><section class="panel"><h2>Administrative Review</h2><form class="inline" method="post" action="/admin/transfers/${t.id}/action"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<select name="action"><option value="approve">Approve</option><option value="reject">Reject</option><option value="hold">Place on Hold</option><option value="review">Request Review</option><option value="complete">Mark Completed</option><option value="fail">Mark Failed</option><option value="cancel">Cancel</option></select><input name="reason" placeholder="Reason required for reject/hold/review/fail/cancel"><label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm action</label><button class="btn">Apply</button></form></section><section class="panel"><h2>Notifications &amp; Receipt</h2><p>Receipt generated: ${t.receipt_generated_at?fmt(t.receipt_generated_at):'Not yet'}</p><table><tr><th>Kind</th><th>Channel</th><th>Event</th><th>Status</th><th>Attempted</th></tr>${notifications.map(n=>`<tr><td>${esc(n.kind)}</td><td>${esc(n.channel||'email')}</td><td>${esc(n.event)}</td><td><span class="status ${n.status==='sent'?'completed':n.status==='failed'?'disabled':''}">${esc(n.status)}</span></td><td>${fmt(n.attempted_at)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">No notifications yet.</td></tr>'}</table>${canManage?`<form class="inline" method="post" action="/admin/transfers/${t.id}/notifications/resend"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<select name="kind"><option value="status">Status notification</option><option value="receipt">Receipt</option></select><label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm resend</label><button class="btn small">Resend</button></form>`:''}</section><section class="panel"><h2>Event Timeline</h2>${events.map(e=>`<p class="notice"><b>${esc(e.event)}</b> ${esc(e.previous_status||'')} → ${esc(e.new_status||'')}<br>${esc(e.reason||'')} · ${esc(e.admin_email||'system')} · ${fmt(e.created_at)}</p>`).join('')||'<p class="empty">No events.</p>'}</section>`, req));
 });
 app.post('/admin/transfers/:id/action', requireAdmin, requireAdminPerm('transfers.manage'), async (req,res,next)=>{
   try {
