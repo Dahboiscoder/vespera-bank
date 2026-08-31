@@ -43,7 +43,7 @@ document.querySelectorAll('.nav-trigger').forEach(trigger => {
 
 document.addEventListener('click', e => {
   if (!e.target.closest('.nav-group') && !e.target.closest('.menu')) document.querySelectorAll('.nav-group').forEach(g => g.classList.remove('active'));
-  if (!e.target.closest('.customer-mobile-drawer') && !e.target.closest('.customer-menu-button') && !e.target.closest('.customer-menu-details')) {
+  if (!e.target.closest('.customer-mobile-drawer') && !e.target.closest('.customer-menu-button') && !e.target.closest('.customer-menu-details') && !e.target.closest('#bankMobileNav') && !e.target.closest('.bank-mobile-menu')) {
     document.querySelectorAll('.customer-mobile-drawer').forEach(drawer => { if (!drawer.closest('.customer-menu-details')) drawer.hidden = true; });
     document.querySelectorAll('.customer-menu-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
     body.classList.remove('open');
