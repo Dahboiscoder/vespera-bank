@@ -261,6 +261,8 @@ async function initDb() {
   await ensureColumn('users', 'sms_alerts_enabled', "TEXT NOT NULL DEFAULT 'no'");
   await ensureColumn('sessions', 'ip', 'TEXT');
   await ensureColumn('sessions', 'user_agent', 'TEXT');
+  await ensureColumn('admin_users', 'password_reset_token', 'TEXT');
+  await ensureColumn('admin_users', 'password_reset_sent_at', 'TEXT');
   await ensureColumn('transfer_notifications', 'channel', "TEXT NOT NULL DEFAULT 'email'");
   await ensureColumn('transfer_notifications', 'recipient_phone', 'TEXT');
   await ensureColumn('loans', 'term_months', 'INTEGER');
@@ -1132,7 +1134,8 @@ const emailService = {
   async sendVerificationCode(email, code) { return this.send({ to:email, subject:'Your Vespera Bank verification code', html: emailLayout({ heading:'Verification code', bodyHtml: verificationCodeBlock(code) }) }); },
   async sendTransactionNotification(transfer, event) { const subj = notificationSubject(transfer, event); return this.send({ to: transfer.user_email, subject: subj, html: emailLayout({ heading: subj.replace(/^Vespera Bank — /,'').split(' (')[0], bodyHtml: transferSummaryBlock(transfer, event) }) }); },
   async sendTransactionReceipt(transfer) { return this.send({ to: transfer.user_email, subject: `Your Vespera Bank receipt — ${transfer.reference || String(transfer.id).slice(0,8).toUpperCase()}`, html: emailLayout({ heading:'Transaction Receipt', bodyHtml: receiptSectionHtml(transfer) }) }); },
-  async sendEmailVerification(email, token) { return this.send({ to:email, subject:'Verify your Vespera Bank email address', html: emailLayout({ heading:'Verify your email', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Please confirm this email address is yours.</p><p style="text-align:center;margin:0 0 20px;"><a href="${APP_URL}/verify-email/${token}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Verify email address</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 24 hours. If you didn't create a Vespera Bank account, you can ignore this email.</p>` }) }); }
+  async sendEmailVerification(email, token) { return this.send({ to:email, subject:'Verify your Vespera Bank email address', html: emailLayout({ heading:'Verify your email', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Please confirm this email address is yours.</p><p style="text-align:center;margin:0 0 20px;"><a href="${APP_URL}/verify-email/${token}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Verify email address</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 24 hours. If you didn't create a Vespera Bank account, you can ignore this email.</p>` }) }); },
+  async sendPasswordReset(email, resetUrl) { return this.send({ to:email, subject:'Reset your Vespera Bank administrator password', html: emailLayout({ heading:'Reset your password', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset the password for your Vespera Bank administrator account.</p><p style="text-align:center;margin:0 0 20px;"><a href="${resetUrl}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Reset password</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password will not be changed.</p>` }) }); }
 };
 function smsConfigured() { return Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER); }
 let twilioClient = null;
@@ -2543,9 +2546,9 @@ app.post('/support/tickets', requireCustomer, async (req,res)=>{
   await audit(req,'SUPPORT_TICKET_CREATED','support_ticket',id,{category:body.issue_category,priority:body.priority}); res.json({ ticketId:id,status:'Open' });
 });
 
-function adminLoginPage(req, msg='') { return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Admin Login | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-login"><section class="auth-card admin-auth"><div class="brand">${logo()}</div><p class="eyebrow">Private administrator portal</p><h1>Admin sign in</h1>${msg?`<p class="error-text">${esc(msg)}</p>`:''}<form method="post" action="/admin/login"><input type="hidden" name="next" value="${esc(req.query.next || '')}"><label>Admin Email<input name="email" type="email" required autocomplete="username"></label><label>Admin Password<input name="password" type="password" required autocomplete="current-password"></label><button class="btn">Sign In</button></form><p>Not linked from the public site. Authorized administrators only.</p></section></body></html>`; }
+function adminLoginPage(req, msg='') { const notice = req.cookies?.login_notice || ''; return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Admin Login | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-login"><section class="auth-card admin-auth"><div class="brand">${logo()}</div><p class="eyebrow">Private administrator portal</p><h1>Admin sign in</h1>${notice?`<p class="notice">${esc(notice)}</p>`:''}${msg?`<p class="error-text">${esc(msg)}</p>`:''}<form method="post" action="/admin/login"><input type="hidden" name="next" value="${esc(req.query.next || '')}"><label>Admin Email<input name="email" type="email" required autocomplete="username"></label><label>Admin Password<input name="password" type="password" required autocomplete="current-password"></label><div class="form-row"><a href="/admin/forgot-password">Forgot password?</a></div><button class="btn">Sign In</button></form><p>Not linked from the public site. Authorized administrators only.</p></section></body></html>`; }
 app.get('/admin', (req,res) => res.redirect(req.admin ? withAdminAccess(req, '/admin/dashboard') : '/admin/login'));
-app.get('/admin/login', (req,res) => res.send(adminLoginPage(req)));
+app.get('/admin/login', (req,res) => { const html = adminLoginPage(req); res.clearCookie('login_notice', noticeCookieOptions(req, 0)); res.send(html); });
 const adminLoginSchema = z.object({ email:z.string().email(), password:z.string().min(8), next:z.string().optional() });
 app.post('/admin/login', async (req,res) => {
   const p = adminLoginSchema.parse(req.body);
@@ -2560,7 +2563,72 @@ app.post('/admin/login', async (req,res) => {
   res.redirect(withAdminAccess({ admin:{ session_id:sid } }, next));
 });
 app.post('/admin/logout', requireAdmin, async (req,res) => { await audit(req, 'admin.logout', 'admin_session', req.signedCookies.admin_sid, {}); await q('DELETE FROM admin_sessions WHERE id=$1', [req.signedCookies.admin_sid || req.body._admin_access]); res.clearCookie('admin_sid', clearCookieOptions(req)); res.redirect('/admin/login'); });
-function adminShell(title, inner, req) { const links = [['Overview','/admin/dashboard','admin.access'],['Search','/admin/search','admin.access'],['Users','/admin/users','users.view'],['KYC','/admin/kyc','kyc.view'],['Accounts','/admin/accounts','users.view'],['Transactions','/admin/transactions','transactions.view'],['Transaction History','/admin/transaction-generator','transactions.correct'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],['Withdrawals','/admin/withdrawals','transfers.view'],['Bill Payments','/admin/bill-payments','bills.view'],['Billers','/admin/billers','bills.view'],['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],['Live Support','/admin/live-support','support.view'],['Support Tickets','/admin/support-tickets','support.view'],['AI Assistant','/admin/ai-assistant','ai.manage'],['Security','/admin/security','security.manage'],['Audit Logs','/admin/audit-logs','audit.view'],['Admin Users','/admin/admin-users','admin_users.manage'],['Settings','/admin/settings','admin.manage']]; const visible = links.filter(([,,perm]) => req.admin.permissions.includes(perm)); return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><p class="small-copy">${esc(req.admin.name)} · ${esc(req.admin.role)}</p><div class="admin-side-links">${visible.map(([n,u])=>`<a href="${withAdminAccess(req,u)}">${n}</a>`).join('')}</div><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>Logout</button></form></aside><main class="app-main">${inner}</main></section><script src="/assets/app.js"></script></body></html>`; }
+function adminForgotPasswordPage(req, { notice='', error='' } = {}) { return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Reset Admin Password | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-login"><section class="auth-card admin-auth"><div class="brand">${logo()}</div><p class="eyebrow">Private administrator portal</p><h1>Reset your password</h1><p>Enter your administrator email and we'll send you a link to reset your password.</p>${notice?`<p class="notice">${notice}</p>`:''}${error?`<p class="error-text">${esc(error)}</p>`:''}<form method="post" action="/admin/forgot-password"><label>Admin Email<input name="email" type="email" required autocomplete="username"></label><button class="btn wide">Send reset link</button></form><p class="center small-copy"><a href="/admin/login">Back to sign in</a></p></section></body></html>`; }
+app.get('/admin/forgot-password', (req,res) => res.send(adminForgotPasswordPage(req)));
+app.post('/admin/forgot-password', rateLimit({ windowMs:15*60*1000, max:10, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = z.object({ email:z.string().email() }).parse(req.body);
+    const admin = await one('SELECT * FROM admin_users WHERE email=$1 AND status=$2', [normalizeLoginEmail(p.email), 'enabled']);
+    let devLink = null;
+    if (admin) {
+      const token = crypto.randomBytes(24).toString('hex');
+      await q('UPDATE admin_users SET password_reset_token=$1, password_reset_sent_at=$2 WHERE id=$3', [token, nowIso(), admin.id]);
+      const resetUrl = `${APP_URL}/admin/reset-password/${token}`;
+      const result = await emailService.sendPasswordReset(admin.email, resetUrl);
+      if (!result.sent) devLink = resetUrl;
+      await audit(req, 'ADMIN_PASSWORD_RESET_REQUESTED', 'admin_user', admin.id, {});
+    }
+    const notice = devLink
+      ? `Email delivery is not configured on this server. For testing, use this link: <a href="${devLink}">Reset password</a>`
+      : "If that email belongs to an administrator account, we've sent a password reset link to it.";
+    res.send(adminForgotPasswordPage(req, { notice }));
+  } catch (e) { if (e instanceof z.ZodError) return res.send(adminForgotPasswordPage(req, { error:'Please enter a valid email address.' })); next(e); }
+});
+function adminResetPasswordPage(req, token, error='') { return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Set New Password | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-login"><section class="auth-card admin-auth"><div class="brand">${logo()}</div><p class="eyebrow">Private administrator portal</p><h1>Set a new password</h1>${error?`<p class="error-text">${esc(error)}</p>`:''}<form method="post" action="/admin/reset-password/${esc(token)}"><label>New Password<input name="password" type="password" minlength="8" required autocomplete="new-password"></label><label>Confirm Password<input name="confirmPassword" type="password" minlength="8" required autocomplete="new-password"></label><button class="btn wide">Set new password</button></form></section></body></html>`; }
+async function adminByResetToken(token) {
+  const admin = await one('SELECT id, password_reset_sent_at FROM admin_users WHERE password_reset_token=$1', [token]);
+  if (!admin) return { admin:null, expired:false };
+  const expired = Date.now() - new Date(admin.password_reset_sent_at).getTime() > 60*60*1000;
+  return { admin, expired };
+}
+app.get('/admin/reset-password/:token', async (req,res) => {
+  const { admin, expired } = await adminByResetToken(req.params.token);
+  if (!admin) { res.cookie('login_notice', 'This password reset link is invalid or has already been used.', noticeCookieOptions(req, 60*1000)); return res.redirect('/admin/login'); }
+  if (expired) { res.cookie('login_notice', 'This password reset link has expired. Please request a new one.', noticeCookieOptions(req, 60*1000)); return res.redirect('/admin/login'); }
+  res.send(adminResetPasswordPage(req, req.params.token));
+});
+app.post('/admin/reset-password/:token', rateLimit({ windowMs:15*60*1000, max:20, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = z.object({ password:z.string().min(8).max(120), confirmPassword:z.string() }).refine(v=>v.password===v.confirmPassword, { message:'Passwords do not match' }).parse(req.body);
+    const { admin, expired } = await adminByResetToken(req.params.token);
+    if (!admin) { res.cookie('login_notice', 'This password reset link is invalid or has already been used.', noticeCookieOptions(req, 60*1000)); return res.redirect('/admin/login'); }
+    if (expired) { res.cookie('login_notice', 'This password reset link has expired. Please request a new one.', noticeCookieOptions(req, 60*1000)); return res.redirect('/admin/login'); }
+    await q('UPDATE admin_users SET password_hash=$1, password_reset_token=NULL, password_reset_sent_at=NULL WHERE id=$2', [await bcrypt.hash(p.password, 12), admin.id]);
+    await q('DELETE FROM admin_sessions WHERE admin_user_id=$1', [admin.id]);
+    await audit(req, 'ADMIN_PASSWORD_RESET_COMPLETED', 'admin_user', admin.id, {});
+    res.cookie('login_notice', 'Your password has been reset. Please sign in with your new password.', noticeCookieOptions(req, 60*1000));
+    res.redirect('/admin/login');
+  } catch (e) { if (e instanceof z.ZodError) return res.send(adminResetPasswordPage(req, req.params.token, e.issues[0]?.message || 'Please check the form.')); next(e); }
+});
+function adminAccountPage(req, { notice='', error='' } = {}) {
+  return adminShell('My Account', `<h1>My Account</h1>${notice?`<p class="notice">${esc(notice)}</p>`:''}${error?`<p class="error-text">${esc(error)}</p>`:''}<section class="panel"><h2>Account Details</h2><div class="info-grid"><p><b>Name</b><span>${esc(req.admin.name)}</span></p><p><b>Email</b><span>${esc(req.admin.email)}</span></p><p><b>Role</b><span>${esc(req.admin.role)}</span></p></div></section><section class="panel"><h2>Change Email</h2><p>Changing your email updates the address you use to sign in to the admin portal.</p><form class="inline" method="post" action="/admin/account/email"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<label>New Email<input name="email" type="email" value="${esc(req.admin.email)}" required></label><label>Current Password<input name="password" type="password" required autocomplete="current-password"></label><button class="btn">Update Email</button></form></section>`, req);
+}
+app.get('/admin/account', requireAdmin, requireAdminPerm('admin.access'), (req,res) => res.send(adminAccountPage(req, { notice: req.query.updated ? 'Email updated successfully.' : '' })));
+const adminEmailChangeSchema = z.object({ email:z.string().email(), password:z.string().min(1) });
+app.post('/admin/account/email', requireAdmin, requireAdminPerm('admin.access'), async (req,res,next) => {
+  try {
+    const p = adminEmailChangeSchema.parse(req.body);
+    const admin = await one('SELECT * FROM admin_users WHERE id=$1', [req.admin.id]);
+    if (!(await bcrypt.compare(p.password, admin.password_hash))) return res.status(400).send(adminAccountPage(req, { error:'Incorrect current password.' }));
+    const newEmail = normalizeLoginEmail(p.email);
+    const existing = await one('SELECT id FROM admin_users WHERE email=$1 AND id!=$2', [newEmail, admin.id]);
+    if (existing) return res.status(400).send(adminAccountPage(req, { error:'That email is already in use by another administrator.' }));
+    await q('UPDATE admin_users SET email=$1 WHERE id=$2', [newEmail, admin.id]);
+    await audit(req, 'ADMIN_EMAIL_CHANGED', 'admin_user', admin.id, { before:admin.email, after:newEmail });
+    res.redirect(withAdminAccess(req, '/admin/account?updated=1'));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminAccountPage(req, { error: e.issues[0]?.message || 'Please check the form.' })); next(e); }
+});
+function adminShell(title, inner, req) { const links = [['Overview','/admin/dashboard','admin.access'],['My Account','/admin/account','admin.access'],['Search','/admin/search','admin.access'],['Users','/admin/users','users.view'],['KYC','/admin/kyc','kyc.view'],['Accounts','/admin/accounts','users.view'],['Transactions','/admin/transactions','transactions.view'],['Transaction History','/admin/transaction-generator','transactions.correct'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],['Withdrawals','/admin/withdrawals','transfers.view'],['Bill Payments','/admin/bill-payments','bills.view'],['Billers','/admin/billers','bills.view'],['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],['Live Support','/admin/live-support','support.view'],['Support Tickets','/admin/support-tickets','support.view'],['AI Assistant','/admin/ai-assistant','ai.manage'],['Security','/admin/security','security.manage'],['Audit Logs','/admin/audit-logs','audit.view'],['Admin Users','/admin/admin-users','admin_users.manage'],['Settings','/admin/settings','admin.manage']]; const visible = links.filter(([,,perm]) => req.admin.permissions.includes(perm)); return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><p class="small-copy">${esc(req.admin.name)} · ${esc(req.admin.role)}</p><div class="admin-side-links">${visible.map(([n,u])=>`<a href="${withAdminAccess(req,u)}">${n}</a>`).join('')}</div><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>Logout</button></form></aside><main class="app-main">${inner}</main></section><script src="/assets/app.js"></script></body></html>`; }
 function miniBars(values) {
   const max = Math.max(...values.map(v=>Number(v.value)||0), 1);
   return `<div class="chart mini-chart">${values.map(v=>`<span title="${esc(v.label)}: ${v.value}" style="height:${Math.max(8, (Number(v.value)||0)/max*100)}%"></span>`).join('')}</div>`;
