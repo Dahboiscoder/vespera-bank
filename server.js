@@ -203,6 +203,8 @@ async function initDb() {
   CREATE INDEX IF NOT EXISTS vendor_payments_user_idx ON vendor_payments(user_id, created_at);
   CREATE TABLE IF NOT EXISTS scheduled_vendor_payments (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, account_id TEXT REFERENCES accounts(id), vendor_id TEXT REFERENCES vendors(id), amount NUMERIC(18,2) NOT NULL, currency TEXT NOT NULL, description TEXT, frequency TEXT NOT NULL, next_run_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', idempotency_key TEXT UNIQUE, last_run_at TEXT, last_run_vendor_payment_id TEXT, last_failure_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
   CREATE INDEX IF NOT EXISTS scheduled_vendor_payments_user_idx ON scheduled_vendor_payments(user_id);
+  CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, account_id TEXT REFERENCES accounts(id), name TEXT NOT NULL, target_amount NUMERIC(18,2) NOT NULL, target_date TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS savings_goals_user_idx ON savings_goals(user_id);
   `);
   await ensureColumn('users', 'phone', 'TEXT');
   await ensureColumn('users', 'last_login_at', 'TEXT');
@@ -1039,7 +1041,7 @@ function customerShell(title, inner, req, opts={}) {
   const navLinks = nav.map(([n,u])=>`<li><a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a></li>`).join('');
   const mobileLinks = [...nav, ['Insights','/dashboard/insights'], ['Beneficiaries','/dashboard/beneficiaries'], ['Standing Orders','/dashboard/standing-orders'], [t(req,'security'),'/dashboard/security'], [t(req,'identity_verification'),'/dashboard/kyc'], [t(req,'refer_earn'),'/dashboard/refer'], [t(req,'grants'),'/dashboard/grants'], [t(req,'loans'),'/dashboard/loans'], [t(req,'currency_swap'),'/dashboard/currency-swap'], [t(req,'tax_refund'),'/dashboard/tax-refund'], [t(req,'help_support'),'/support/chat'], [t(req,'sign_out'),'/logout']].map(([n,u])=>`<li><a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a></li>`).join('');
   const verifyBanners = `${req.user.kyc_status!=='approved'?`<div class="verify-banner warn"><span class="icon">⚠</span><p>You haven't verified your identity yet. Until you do you can receive money but not send it. <a href="${withAccess(req,'/dashboard/kyc')}">Verify now →</a></p></div>`:''}${!req.user.email_verified_at?`<div class="verify-banner soft"><p>Your email isn't verified yet. <a href="${withAccess(req,'/dashboard/security')}">Verify now →</a></p></div>`:''}`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="customer-app" data-theme="${req.user.theme_preference==='dark'?'dark':'light'}"><header class="customer-header"><div class="customer-header-main"><a class="brand customer-brand" href="${withAccess(req,'/dashboard')}">${logo()}</a><nav class="customer-desktop-nav" aria-label="Secure banking navigation"><ul>${navLinks}</ul></nav><form class="customer-search" action="/dashboard/transactions"><input name="q" placeholder="Search" aria-label="Search transactions and activity">${hiddenAccess(req)}</form>${langSwitcher(req)}<a class="customer-icon" href="${withAccess(req,'/dashboard/notifications')}" aria-label="Notifications">◌<sup>${req.user.unread_notifications}</sup></a><div class="customer-profile"><button type="button" class="customer-avatar" aria-label="Profile menu" aria-expanded="false"><span>${esc(avatar(req.user.name))}</span></button><div class="customer-profile-panel" role="menu" hidden><a href="${withAccess(req,'/dashboard/profile')}">${t(req,'my_profile')}</a><a href="${withAccess(req,'/dashboard/security')}">${t(req,'security')}</a><a href="${withAccess(req,'/dashboard/kyc')}">${t(req,'identity_verification')}</a><a href="${withAccess(req,'/dashboard/refer')}">${t(req,'refer_earn')}</a><a href="${withAccess(req,'/dashboard/bills')}">Bills</a><a href="${withAccess(req,'/dashboard/business')}">Business</a><a href="${withAccess(req,'/dashboard/grants')}">${t(req,'grants')}</a><a href="${withAccess(req,'/dashboard/loans')}">${t(req,'loans')}</a><a href="${withAccess(req,'/dashboard/currency-swap')}">${t(req,'currency_swap')}</a><a href="${withAccess(req,'/dashboard/tax-refund')}">${t(req,'tax_refund')}</a><a href="${withAccess(req,'/dashboard/insights')}">Insights</a><a href="${withAccess(req,'/dashboard/beneficiaries')}">Beneficiaries</a><a href="${withAccess(req,'/dashboard/standing-orders')}">Standing Orders</a><a href="${withAccess(req,'/dashboard/settings')}">${t(req,'preferences')}</a><a href="${withAccess(req,'/support/chat')}">${t(req,'help_support')}</a><a href="${withAccess(req,'/logout')}">${t(req,'sign_out')}</a></div></div><details class="customer-menu-details"><summary>Menu</summary><nav class="customer-mobile-drawer" id="customerMobileNav" aria-label="Mobile banking navigation"><ul>${mobileLinks}</ul></nav></details></div></header>${verifyBanners}<main class="customer-main">${inner}</main><form class="sr-only" method="post" action="/logout"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}</form><nav class="customer-bottom-nav" aria-label="Mobile bottom navigation">${bottom.map(([n,u,i])=>`<a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}"><span>${i}</span>${n}</a>`).join('')}</nav>${opts.hideFab?'':aiWidget()}<script src="/assets/app.js"></script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="customer-app" data-theme="${req.user.theme_preference==='dark'?'dark':'light'}"><header class="customer-header"><div class="customer-header-main"><a class="brand customer-brand" href="${withAccess(req,'/dashboard')}">${logo()}</a><nav class="customer-desktop-nav" aria-label="Secure banking navigation"><ul>${navLinks}</ul></nav><form class="customer-search" action="/dashboard/transactions"><input name="q" placeholder="Search" aria-label="Search transactions and activity">${hiddenAccess(req)}</form>${langSwitcher(req)}<a class="customer-icon" href="${withAccess(req,'/dashboard/notifications')}" aria-label="Notifications">◌<sup>${req.user.unread_notifications}</sup></a><div class="customer-profile"><button type="button" class="customer-avatar" aria-label="Profile menu" aria-expanded="false"><span>${esc(avatar(req.user.name))}</span></button><div class="customer-profile-panel" role="menu" hidden><a href="${withAccess(req,'/dashboard/profile')}">${t(req,'my_profile')}</a><a href="${withAccess(req,'/dashboard/security')}">${t(req,'security')}</a><a href="${withAccess(req,'/dashboard/kyc')}">${t(req,'identity_verification')}</a><a href="${withAccess(req,'/dashboard/refer')}">${t(req,'refer_earn')}</a><a href="${withAccess(req,'/dashboard/bills')}">Bills</a><a href="${withAccess(req,'/dashboard/business')}">Business</a><a href="${withAccess(req,'/dashboard/goals')}">Goals</a><a href="${withAccess(req,'/dashboard/grants')}">${t(req,'grants')}</a><a href="${withAccess(req,'/dashboard/loans')}">${t(req,'loans')}</a><a href="${withAccess(req,'/dashboard/currency-swap')}">${t(req,'currency_swap')}</a><a href="${withAccess(req,'/dashboard/tax-refund')}">${t(req,'tax_refund')}</a><a href="${withAccess(req,'/dashboard/insights')}">Insights</a><a href="${withAccess(req,'/dashboard/beneficiaries')}">Beneficiaries</a><a href="${withAccess(req,'/dashboard/standing-orders')}">Standing Orders</a><a href="${withAccess(req,'/dashboard/settings')}">${t(req,'preferences')}</a><a href="${withAccess(req,'/support/chat')}">${t(req,'help_support')}</a><a href="${withAccess(req,'/logout')}">${t(req,'sign_out')}</a></div></div><details class="customer-menu-details"><summary>Menu</summary><nav class="customer-mobile-drawer" id="customerMobileNav" aria-label="Mobile banking navigation"><ul>${mobileLinks}</ul></nav></details></div></header>${verifyBanners}<main class="customer-main">${inner}</main><form class="sr-only" method="post" action="/logout"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}</form><nav class="customer-bottom-nav" aria-label="Mobile bottom navigation">${bottom.map(([n,u,i])=>`<a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}"><span>${i}</span>${n}</a>`).join('')}</nav>${opts.hideFab?'':aiWidget()}<script src="/assets/app.js"></script></body></html>`;
 }
 
 async function customerDashboard(req,res) {
@@ -1161,9 +1163,8 @@ function receiptSectionHtml(transfer) {
   const rows = buildReceiptFields(transfer);
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 20px;">${rows.map(([label,val])=>`<tr><td style="padding:8px 0;border-bottom:1px solid #e2ddd6;font-size:13px;color:#5b554f;">${esc(label)}</td><td style="padding:8px 0;border-bottom:1px solid #e2ddd6;font-size:13px;color:#201f1d;text-align:right;font-weight:700;">${esc(String(val))}</td></tr>`).join('')}</table><p style="text-align:center;margin:24px 0 0;"><a href="${APP_URL}/dashboard/transfers/${transfer.id}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">View Full Receipt</a></p>`;
 }
-function receiptPanelHtml(transfer) {
-  const rows = buildReceiptFields(transfer);
-  return `<div class="metric-grid"><article><span>Status</span><b><span class="status ${esc(String(transfer.status).toLowerCase())}">${esc(transfer.status)}</span></b></article><article><span>Amount</span><b>${money(transfer.amount)}</b><p>${esc(transfer.currency)}</p></article><article><span>Fee</span><b>${money(num(transfer.fee))}</b></article><article><span>Total</span><b>${money(num(transfer.amount)+num(transfer.fee))}</b></article></div><table>${rows.map(([label,val])=>`<tr><th>${esc(label)}</th><td>${esc(String(val))}</td></tr>`).join('')}</table>`;
+function advancedReceiptHtml({ statusLabel, statusClass, amountValue, amountLabel, isCredit, rows, reference }) {
+  return `<div class="advanced-receipt" id="statementPanel"><div class="advanced-receipt-band">${logo()}<span class="advanced-receipt-tagline">Official Transaction Receipt</span></div><div class="advanced-receipt-status"><span class="status ${esc(statusClass)}">${esc(statusLabel)}</span></div><div class="advanced-receipt-amount"><b class="${isCredit?'pos':'neg'}">${isCredit?'+':'-'}${esc(amountValue)}</b><small>${esc(amountLabel)}</small></div><div class="advanced-receipt-body">${rows.map(([k,v])=>`<div class="advanced-receipt-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('')}</div><div class="advanced-receipt-barcode" aria-hidden="true"></div><div class="advanced-receipt-code">REF ${esc(reference)}</div><div class="advanced-receipt-foot">Thank you for banking with Vespera Bank.<br>This is a computer-generated receipt and does not require a signature.</div></div>`;
 }
 function notificationSubject(transfer, event) {
   const map = { Initiated:'Transfer initiated', Completed:'Transfer completed', Failed:'Transfer failed', Cancelled:'Transfer cancelled', Pending:'Transfer pending review', Processing:'Transfer processing' };
@@ -1470,7 +1471,10 @@ app.get('/dashboard/transfers/:id', requireCustomer, async (req,res)=>{
   if (!t) return res.status(404).send(customerShell('Not found', '<section class="panel state error"><h1>Not found</h1><p>This transfer could not be found.</p><a class="btn" href="'+withAccess(req,'/dashboard/transfers/history')+'">Back to Transfer History</a></section>', req));
   const notifications = (await q('SELECT kind, event, status, created_at FROM transfer_notifications WHERE transfer_id=$1 ORDER BY created_at DESC', [t.id])).rows;
   const canCancel = ['Draft','Pending'].includes(t.status);
-  res.send(customerShell('Receipt', `<h1 id="receiptTitle">Transaction Receipt</h1>${transferNav(req)}<section class="panel receipt" id="receiptPanel"><div class="receipt-brand"><span class="mark"><svg viewBox="0 0 44 44"><path d="M22 4 39 16v22H5V16L22 4Z"/><path d="M14 33V17l16 16V17"/></svg></span><span>VESPERA BANK</span></div>${receiptPanelHtml(t)}<p class="small-copy">Notifications: ${notifications.length?notifications.map(n=>`${esc(n.kind)}/${esc(n.event)}: ${esc(n.status)} (${fmt(n.created_at)})`).join(', '):'None yet.'}</p><div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn">Print / Save PDF</button><button type="button" class="btn ghost" id="shareReceiptBtn" hidden>Share</button>${canCancel?`<form method="post" action="${withAccess(req,'/dashboard/transfers/'+t.id+'/cancel')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm cancellation</label><button class="btn danger">Cancel Transfer</button></form>`:''}</div></section>`, req));
+  const isCredit = t.transfer_type === 'Deposit';
+  const receiptRows = buildReceiptFields(t).filter(([k])=>k!=='Status');
+  const receiptHtml = advancedReceiptHtml({ statusLabel:t.status, statusClass:String(t.status).toLowerCase().replaceAll(' ','-'), amountValue:`${money(num(t.amount)+num(t.fee))} ${t.currency}`, amountLabel:t.transfer_type, isCredit, rows:receiptRows, reference:t.reference || String(t.id).slice(0,8).toUpperCase() });
+  res.send(customerShell('Receipt', `<section class="page-head"><h2 id="receiptTitle">Transaction Receipt</h2></section>${transferNav(req)}<section class="panel receipt" id="receiptPanel">${receiptHtml}<p class="small-copy">Notifications: ${notifications.length?notifications.map(n=>`${esc(n.kind)}/${esc(n.event)}: ${esc(n.status)} (${fmt(n.created_at)})`).join(', '):'None yet.'}</p><div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="Transfer_${esc(t.transfer_type)}_${esc(t.id).slice(0,8)}">Print / Save as PDF</button><button type="button" class="btn ghost" id="shareReceiptBtn" hidden>Share</button>${canCancel?`<form method="post" action="${withAccess(req,'/dashboard/transfers/'+t.id+'/cancel')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm cancellation</label><button class="btn danger">Cancel Transfer</button></form>`:''}</div></section>`, req));
 });
 app.post('/dashboard/transfers/:id/cancel', requireCustomer, async (req,res,next) => {
   try {
@@ -1704,16 +1708,16 @@ app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await pro
     }
   }
   const kycStatus = kycRow?.status || 'not_submitted';
-  const profileNavLinks = [['Overview & Personal Info','/dashboard/profile'],['Security','/dashboard/security'],['Notifications','/dashboard/notifications'],['Preferences','/dashboard/settings'],['Statements','/dashboard/statements'],['Bills','/dashboard/bills'],['Business','/dashboard/business'],['Help & Support','/support']];
+  const profileNavLinks = [['Overview & Personal Info','/dashboard/profile'],['Security','/dashboard/security'],['Notifications','/dashboard/notifications'],['Preferences','/dashboard/settings'],['Statements','/dashboard/statements'],['Bills','/dashboard/bills'],['Business','/dashboard/business'],['Goals','/dashboard/goals'],['Help & Support','/support']];
   const profileNav = `<nav class="profile-tabs">${profileNavLinks.map(([n,u])=>`<a class="${req.path===u?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a>`).join('')}</nav>`;
   let content;
-  if (s==='accounts') content = `<section class="page-head"><h2>Accounts</h2><p>View balances, account status and available account actions.</p></section><div class="account-grid">${accounts.map(a=>`<article class="account-card"><span>${esc(a.type)}</span><h3>${money(a.balance)}</h3><p>Available balance ${money(a.balance)}</p><small>•••• ${esc(a.account_no).slice(-4)} · ${esc(a.currency)} · ${esc(a.status)}</small><div><a class="btn small" href="${withAccess(req,'/dashboard/transactions')}">View</a><a class="btn small secondary" href="${withAccess(req,'/dashboard/transfers')}">Transfer</a><a class="btn small ghost" href="${withAccess(req,'/dashboard/statements')}">Statements</a></div></article>`).join('')}</div>`;
+  if (s==='accounts') content = `<section class="page-head"><h2>Accounts</h2><p>View balances, account status and available account actions.</p></section><div class="account-grid">${accounts.map(a=>`<article class="account-card"><span>${esc(a.type)}</span><h3>${money(a.balance)}</h3><p>Available balance ${money(a.balance)}</p><small>•••• ${esc(a.account_no).slice(-4)} · ${esc(a.currency)} · ${esc(a.status)}</small><div><a class="btn small" href="${withAccess(req,'/dashboard/transactions')}">View</a><a class="btn small secondary" href="${withAccess(req,'/dashboard/transfers')}">Transfer</a><a class="btn small ghost" href="${withAccess(req,'/dashboard/statements')}">Statements</a></div></article>`).join('')}</div><section class="panel"><h2>Savings Goals</h2><p>Set a target, track your progress, and contribute toward something specific.</p><a class="btn secondary" href="${withAccess(req,'/dashboard/goals')}">Manage Savings Goals</a></section>`;
   else if (s==='transactions') {
     const primaryAcct = accounts[0];
     const acctSummary = primaryAcct ? `<div class="activity-account-summary"><span>${esc(primaryAcct.type)} · •••• ${esc(String(primaryAcct.account_no||'').slice(-4))}</span><b>${money(primaryAcct.balance)}</b><small>Available balance</small></div>` : '';
     const bucketOf = kind => { const k = String(kind).toLowerCase(); if (k.includes('deposit')) return 'deposits'; if (k.includes('withdraw')) return 'withdrawals'; return 'transfers'; };
     const fromRequests = requestRows.map(t => ({ date:t.created_at, kind:t.transfer_type, label:t.recipient_name, sub:t.reference||t.purpose||t.transfer_type, amount: t.transfer_type==='Deposit' ? num(t.amount) : -num(t.amount), currency:t.currency, status:t.status, href:withAccess(req,'/dashboard/transfers/'+t.id), bucket:bucketOf(t.transfer_type) }));
-    const fromLedger = tx.map(t => ({ date:t.transaction_date||t.created_at, kind:publicTxType(t), label:cleanCopy(t.description||t.reference||'Transaction'), sub:t.reference||t.category||'', amount:num(t.amount), currency:t.currency, status:t.status||'completed', href:null, bucket:bucketOf(t.kind) }));
+    const fromLedger = tx.map(t => ({ date:t.transaction_date||t.created_at, kind:publicTxType(t), label:cleanCopy(t.description||t.reference||'Transaction'), sub:t.reference||t.category||'', amount:num(t.amount), currency:t.currency, status:t.status||'completed', href:withAccess(req,'/dashboard/transactions/'+t.id), bucket:bucketOf(t.kind) }));
     let activity = [...fromRequests, ...fromLedger].sort((a,b)=>new Date(b.date)-new Date(a.date));
     const typeFilter = ['deposits','withdrawals','transfers'].includes(req.query.type) ? req.query.type : '';
     const qFilter = String(req.query.q||'').trim().toLowerCase();
@@ -1821,6 +1825,19 @@ app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await pro
   else content = `<section class="page-head"><h2>${s[0].toUpperCase()+s.slice(1)}</h2><p>This workspace is ready for expanded workflows.</p></section>`;
   res.send(customerShell(s[0].toUpperCase()+s.slice(1), content, req));
 }));
+app.get('/dashboard/transactions/:id', requireCustomer, async (req,res,next) => {
+  try {
+    const t = await one('SELECT t.*, a.type account_type, a.account_no FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE t.id=$1 AND a.user_id=$2', [req.params.id, req.user.id]);
+    if (!t) return res.status(404).send(customerShell('Not found', `<section class="panel state error"><h1>Not found</h1><p>This transaction could not be found.</p><a class="btn" href="${withAccess(req,'/dashboard/transactions')}">Back to Activity</a></section>`, req));
+    const isCredit = num(t.amount) >= 0;
+    const typeLabel = publicTxType(t);
+    const status = t.status || 'completed';
+    const rows = [['Type', typeLabel], ['Description', cleanCopy(t.description || t.reference || 'Transaction')], ['Account', `${t.account_type} •••• ${String(t.account_no||'').slice(-4)}`], ['Reference', t.reference || String(t.id).slice(0,8).toUpperCase()], ['Date', fmt(t.transaction_date || t.created_at)]];
+    if (t.category) rows.splice(3, 0, ['Category', t.category]);
+    const receiptHtml = advancedReceiptHtml({ statusLabel:status, statusClass:String(status).toLowerCase(), amountValue:`${money(Math.abs(num(t.amount)))} ${t.currency}`, amountLabel:typeLabel, isCredit, rows, reference:t.reference || String(t.id).slice(0,8).toUpperCase() });
+    res.send(customerShell('Transaction Receipt', `<section class="page-head"><h2>Transaction Receipt</h2></section><section class="panel receipt">${receiptHtml}<div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="Transaction_${esc(typeLabel).replace(/\s+/g,'')}_${esc(t.id).slice(0,8)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,'/dashboard/transactions')}">Back to Activity</a></div></section>`, req));
+  } catch (e) { next(e); }
+});
 const settingsSchema = z.object({ preferred_currency:z.string().length(3), date_format:z.enum(DATE_FORMAT_OPTIONS), theme_preference:z.enum(['light','dark']) });
 app.post('/dashboard/settings', requireCustomer, async (req,res,next) => {
   try {
@@ -2197,7 +2214,11 @@ app.get('/dashboard/bills/:id', requireCustomer, async (req,res,next) => {
   try {
     const payment = await one('SELECT bp.*, b.name biller_name, b.category, b.reference_label, a.type account_type, a.account_no FROM bill_payments bp JOIN billers b ON b.id=bp.biller_id JOIN accounts a ON a.id=bp.account_id WHERE bp.id=$1 AND bp.user_id=$2', [req.params.id, req.user.id]);
     if (!payment) return res.status(404).send(customerShell('Payment not found', `<section class="panel state error"><h1>Payment not found</h1><p>We couldn't find that bill payment.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back to Bills</a></section>`, req));
-    const content = `<section class="page-head"><h2>Bill Payment Receipt</h2><p>Reference ${esc(payment.id).slice(0,8).toUpperCase()}</p></section><section class="panel receipt" id="statementPanel"><div class="statement-letterhead"><div class="statement-brand">${logo()}<span>VESPERA BANK</span></div><div class="statement-meta"><b>Payment Receipt</b><span>${fmt(payment.created_at)}</span></div></div><div class="info-grid"><p><b>Biller</b><span>${esc(payment.biller_name)}</span></p><p><b>Category</b><span>${esc(payment.category)}</span></p><p><b>${esc(payment.reference_label)}</b><span>${esc(payment.reference_number)}</span></p><p><b>Amount</b><span>${money(payment.amount)} ${esc(payment.currency)}</span></p><p><b>Paid From</b><span>${esc(payment.account_type)} •••• ${esc(String(payment.account_no||'').slice(-4))}</span></p><p><b>Status</b><span>${esc(payment.status)}</span></p>${payment.description?`<p><b>Description</b><span>${esc(payment.description)}</span></p>`:''}${payment.failure_reason?`<p><b>Reason</b><span>${esc(payment.failure_reason)}</span></p>`:''}</div><div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="BillPayment_${esc(payment.biller_name).replace(/\s+/g,'')}_${esc(payment.id).slice(0,8)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,'/dashboard/bills')}">Back to Bills</a></div></section>`;
+    const receiptRows = [['Biller', payment.biller_name], ['Category', payment.category], [payment.reference_label, payment.reference_number], ['Paid From', `${payment.account_type} •••• ${String(payment.account_no||'').slice(-4)}`], ['Date', fmt(payment.created_at)]];
+    if (payment.description) receiptRows.push(['Description', payment.description]);
+    if (payment.failure_reason) receiptRows.push(['Reason', payment.failure_reason]);
+    const receiptHtml = advancedReceiptHtml({ statusLabel:payment.status, statusClass:String(payment.status).toLowerCase(), amountValue:`${money(payment.amount)} ${payment.currency}`, amountLabel:'Bill Payment', isCredit:false, rows:receiptRows, reference:String(payment.id).slice(0,8).toUpperCase() });
+    const content = `<section class="page-head"><h2>Bill Payment Receipt</h2></section><section class="panel receipt">${receiptHtml}<div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="BillPayment_${esc(payment.biller_name).replace(/\s+/g,'')}_${esc(payment.id).slice(0,8)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,'/dashboard/bills')}">Back to Bills</a></div></section>`;
     res.send(customerShell('Payment Receipt', content, req));
   } catch (e) { next(e); }
 });
@@ -2372,7 +2393,11 @@ app.get('/dashboard/business/payments/:id', requireCustomer, async (req,res,next
   try {
     const payment = await one('SELECT vp.*, v.name vendor_name, v.category, v.account_reference, a.type account_type, a.account_no FROM vendor_payments vp JOIN vendors v ON v.id=vp.vendor_id JOIN accounts a ON a.id=vp.account_id WHERE vp.id=$1 AND vp.user_id=$2', [req.params.id, req.user.id]);
     if (!payment) return res.status(404).send(customerShell('Payment not found', `<section class="panel state error"><h1>Payment not found</h1><p>We couldn't find that vendor payment.</p><a class="btn" href="${withAccess(req,'/dashboard/business')}">Back to Business Banking</a></section>`, req));
-    const content = `<section class="page-head"><h2>Vendor Payment Receipt</h2><p>Reference ${esc(payment.id).slice(0,8).toUpperCase()}</p></section><section class="panel receipt" id="statementPanel"><div class="statement-letterhead"><div class="statement-brand">${logo()}<span>VESPERA BANK</span></div><div class="statement-meta"><b>Payment Receipt</b><span>${fmt(payment.created_at)}</span></div></div><div class="info-grid"><p><b>Vendor</b><span>${esc(payment.vendor_name)}</span></p><p><b>Category</b><span>${esc(payment.category)}</span></p><p><b>Amount</b><span>${money(payment.amount)} ${esc(payment.currency)}</span></p><p><b>Paid From</b><span>${esc(payment.account_type)} •••• ${esc(String(payment.account_no||'').slice(-4))}</span></p><p><b>Status</b><span>${esc(payment.status)}</span></p>${payment.description?`<p><b>Description</b><span>${esc(payment.description)}</span></p>`:''}${payment.failure_reason?`<p><b>Reason</b><span>${esc(payment.failure_reason)}</span></p>`:''}</div><div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="VendorPayment_${esc(payment.vendor_name).replace(/\s+/g,'')}_${esc(payment.id).slice(0,8)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,'/dashboard/business')}">Back to Business Banking</a></div></section>`;
+    const receiptRows = [['Vendor', payment.vendor_name], ['Category', payment.category], ['Paid From', `${payment.account_type} •••• ${String(payment.account_no||'').slice(-4)}`], ['Date', fmt(payment.created_at)]];
+    if (payment.description) receiptRows.push(['Description', payment.description]);
+    if (payment.failure_reason) receiptRows.push(['Reason', payment.failure_reason]);
+    const receiptHtml = advancedReceiptHtml({ statusLabel:payment.status, statusClass:String(payment.status).toLowerCase(), amountValue:`${money(payment.amount)} ${payment.currency}`, amountLabel:'Vendor Payment', isCredit:false, rows:receiptRows, reference:String(payment.id).slice(0,8).toUpperCase() });
+    const content = `<section class="page-head"><h2>Vendor Payment Receipt</h2></section><section class="panel receipt">${receiptHtml}<div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="VendorPayment_${esc(payment.vendor_name).replace(/\s+/g,'')}_${esc(payment.id).slice(0,8)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,'/dashboard/business')}">Back to Business Banking</a></div></section>`;
     res.send(customerShell('Payment Receipt', content, req));
   } catch (e) { next(e); }
 });
@@ -2440,6 +2465,120 @@ app.post('/dashboard/business/scheduled/:id/cancel', requireCustomer, async (req
   } catch (e) { next(e); }
 });
 // ==================== end Business Banking ====================
+// ==================== Savings Goals ====================
+async function getGoalOr404(id, userId) { return one('SELECT g.*, a.balance account_balance, a.currency account_currency, a.account_no, a.status account_status FROM savings_goals g JOIN accounts a ON a.id=g.account_id WHERE g.id=$1 AND g.user_id=$2', [id, userId]); }
+function goalProgress(goal) {
+  const pct = num(goal.target_amount) > 0 ? Math.min(100, (num(goal.account_balance) / num(goal.target_amount)) * 100) : 0;
+  return { pct, complete: num(goal.account_balance) >= num(goal.target_amount) };
+}
+app.get('/dashboard/goals', requireCustomer, async (req,res,next) => {
+  try {
+    const goals = (await q('SELECT g.*, a.balance account_balance, a.currency account_currency FROM savings_goals g JOIN accounts a ON a.id=g.account_id WHERE g.user_id=$1 ORDER BY g.created_at DESC', [req.user.id])).rows;
+    const goalCard = g => { const { pct, complete } = goalProgress(g); return `<article class="account-card"><span>${complete?'Goal Reached':esc(g.status)}</span><h3>${esc(g.name)}</h3><p>${money(g.account_balance)} of ${money(g.target_amount)}</p><div class="score-line"><i style="width:${pct}%"></i></div>${g.target_date?`<small>Target date: ${fmt(g.target_date)}</small>`:''}<div><a class="btn small" href="${withAccess(req,`/dashboard/goals/${g.id}`)}">View</a></div></article>`; };
+    const list = goals.length ? `<div class="account-grid">${goals.map(goalCard).join('')}</div>` : '<section class="panel empty-pro"><h3>No savings goals yet</h3><p>Create a goal below to start saving toward something specific.</p></section>';
+    const addForm = `<form class="inline" method="post" action="${withAccess(req,'/dashboard/goals')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Goal Name<input name="name" required maxlength="80" placeholder="e.g. Vacation Fund"></label><label>Target Amount<input name="targetAmount" type="number" step="0.01" min="1" required></label><label>Target Date (optional)<input name="targetDate" type="date"></label><button class="btn">Create Goal</button></form>`;
+    res.send(customerShell('Savings Goals', `<section class="page-head"><h2>Savings Goals</h2><p>Set a target, watch your progress, and contribute whenever you like.</p></section><section class="panel"><h2>Your Goals</h2>${list}</section><section class="panel"><h2>Create a Goal</h2>${addForm}</section>`, req));
+  } catch (e) { next(e); }
+});
+const goalSchema = z.object({ name:z.string().min(2).max(80), targetAmount:z.coerce.number().positive().max(10000000), targetDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+app.post('/dashboard/goals', requireCustomer, async (req,res,next) => {
+  try {
+    const p = goalSchema.parse(req.body);
+    const accountId = uid(); const goalId = uid();
+    await q('INSERT INTO accounts (id,user_id,account_no,type,currency,balance,status,iban) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [accountId, req.user.id, accountNo(), `${p.name} Savings Goal`, req.user.preferred_currency || 'USD', 0, 'active', generateIban()]);
+    await q('INSERT INTO savings_goals (id,user_id,account_id,name,target_amount,target_date,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [goalId, req.user.id, accountId, p.name, p.targetAmount, p.targetDate||null, 'active', nowIso(), nowIso()]);
+    await audit(req, 'SAVINGS_GOAL_CREATED', 'savings_goal', goalId, { name:p.name, target:p.targetAmount });
+    res.redirect(withAccess(req, `/dashboard/goals/${goalId}`));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send('Invalid input'); next(e); }
+});
+app.get('/dashboard/goals/:id', requireCustomer, async (req,res,next) => {
+  try {
+    const goal = await getGoalOr404(req.params.id, req.user.id);
+    if (!goal) return res.status(404).send(customerShell('Not found', `<section class="panel state error"><h1>Not found</h1><p>This goal could not be found.</p><a class="btn" href="${withAccess(req,'/dashboard/goals')}">Back to Goals</a></section>`, req));
+    const otherAccounts = (await q('SELECT * FROM accounts WHERE user_id=$1 AND id!=$2', [req.user.id, goal.account_id])).rows;
+    const { pct, complete } = goalProgress(goal);
+    const txRows = (await q('SELECT * FROM transactions WHERE account_id=$1 ORDER BY created_at DESC LIMIT 20', [goal.account_id])).rows;
+    const history = txRows.length ? `<table><tr><th>Date</th><th>Description</th><th>Amount</th></tr>${txRows.map(t=>`<tr><td>${fmt(t.created_at)}</td><td>${esc(cleanCopy(t.description||'Transaction'))}</td><td class="${num(t.amount)>=0?'pos':'neg'}">${num(t.amount)>=0?'+':''}${money(t.amount)}</td></tr>`).join('')}</table>` : '<p class="empty">No activity yet.</p>';
+    const accountOptions = otherAccounts.map(a=>`<option value="${a.id}">${esc(a.type)} — ${esc(a.currency)} (${money(a.balance)})</option>`).join('');
+    const contributeForm = otherAccounts.length ? `<form class="inline" method="post" action="${withAccess(req,`/dashboard/goals/${goal.id}/contribute`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>From Account<select name="fromAccountId">${accountOptions}</select></label><label>Amount<input name="amount" type="number" step="0.01" min="0.01" required></label><label>Transaction PIN<input name="pin" type="password" inputmode="numeric" maxlength="4" required autocomplete="off"></label><button class="btn">Contribute</button></form>` : '<p class="notice">Open another account to contribute toward this goal.</p>';
+    const withdrawForm = otherAccounts.length ? `<form class="inline" method="post" action="${withAccess(req,`/dashboard/goals/${goal.id}/withdraw`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>To Account<select name="toAccountId">${accountOptions}</select></label><label>Amount<input name="amount" type="number" step="0.01" min="0.01" required></label><label>Transaction PIN<input name="pin" type="password" inputmode="numeric" maxlength="4" required autocomplete="off"></label><button class="btn secondary">Withdraw</button></form>` : '<p class="notice">Open another account to withdraw funds from this goal.</p>';
+    const editForm = `<form class="inline" method="post" action="${withAccess(req,`/dashboard/goals/${goal.id}/edit`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Goal Name<input name="name" value="${esc(goal.name)}" required maxlength="80"></label><label>Target Amount<input name="targetAmount" type="number" step="0.01" min="1" value="${esc(goal.target_amount)}" required></label><label>Target Date<input name="targetDate" type="date" value="${goal.target_date?esc(String(goal.target_date).slice(0,10)):''}"></label><button class="btn small secondary">Save</button></form>`;
+    const cancelForm = goal.status==='active' ? `<form method="post" action="${withAccess(req,`/dashboard/goals/${goal.id}/cancel`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label class="check"><input type="checkbox" name="confirm" value="YES" required> I want to close this goal (the account and its balance are kept, it just stops being tracked as a goal)</label><button class="btn small danger">Close Goal</button></form>` : '';
+    res.send(customerShell(goal.name, `<section class="page-head"><h2>${esc(goal.name)}</h2><p>${complete?'Goal reached! 🎉':"Keep going — you're on your way."}</p></section><section class="panel"><h2>Progress</h2><div class="metric-grid"><article><span>Saved</span><b>${money(goal.account_balance)}</b></article><article><span>Target</span><b>${money(goal.target_amount)}</b></article><article><span>Progress</span><b>${pct.toFixed(0)}%</b></article><article><span>Status</span><b>${complete?'Reached':esc(goal.status)}</b></article></div><div class="score-line"><i style="width:${pct}%"></i></div>${goal.target_date?`<p class="small-copy">Target date: ${fmt(goal.target_date)}</p>`:''}</section><section class="panel"><h2>Contribute</h2>${contributeForm}</section><section class="panel"><h2>Withdraw</h2>${withdrawForm}</section><section class="panel"><h2>Activity</h2>${history}</section><section class="panel"><h2>Edit Goal</h2>${editForm}${cancelForm}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.post('/dashboard/goals/:id/contribute', requireCustomer, rateLimit({ windowMs:15*60*1000, max:30, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const goal = await getGoalOr404(req.params.id, req.user.id);
+    if (!goal) return res.status(404).send('Not found');
+    const p = z.object({ fromAccountId:z.string().uuid(), amount:z.coerce.number().positive().max(1000000), pin:z.string() }).parse(req.body);
+    const fromAccount = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [p.fromAccountId, req.user.id]);
+    if (!fromAccount) return res.status(404).send('Account not found');
+    if (fromAccount.currency !== goal.account_currency) return res.status(400).send(customerShell('Contribute to Goal', `<section class="panel state error"><h1>Currency mismatch</h1><p>Please contribute from an account in ${esc(goal.account_currency)}, or convert funds first using Currency Swap.</p><a class="btn" href="${withAccess(req,'/dashboard/goals/'+goal.id)}">Back</a></section>`, req));
+    if (num(fromAccount.balance) < p.amount) return res.status(400).send(customerShell('Contribute to Goal', `<section class="panel state error"><h1>Insufficient balance</h1><p>Your account does not have enough available balance for this contribution.</p><a class="btn" href="${withAccess(req,'/dashboard/goals/'+goal.id)}">Back</a></section>`, req));
+    const pinResult = await verifyTransactionPin(req, p.pin);
+    if (!pinResult.ok) return res.status(400).send(customerShell('Contribute to Goal', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(pinResult.message)}</p><a class="btn" href="${withAccess(req,'/dashboard/goals/'+goal.id)}">Back</a></section>`, req));
+    const idk = uid();
+    await exec('BEGIN');
+    await q('UPDATE accounts SET balance=balance-$1 WHERE id=$2', [p.amount, fromAccount.id]);
+    await q('UPDATE accounts SET balance=balance+$1 WHERE id=$2', [p.amount, goal.account_id]);
+    await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,reference,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [uid(), fromAccount.id, 'Goal Contribution', `Contribution to ${goal.name}`, -p.amount, fromAccount.currency, nowIso(), 'completed', idk, 'SAVINGS_GOAL']);
+    await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,reference,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [uid(), goal.account_id, 'Goal Contribution', `Contribution from ${fromAccount.type}`, p.amount, goal.account_currency, nowIso(), 'completed', idk, 'SAVINGS_GOAL']);
+    await exec('COMMIT');
+    await audit(req, 'SAVINGS_GOAL_CONTRIBUTION', 'savings_goal', goal.id, { amount:p.amount });
+    res.redirect(withAccess(req, `/dashboard/goals/${goal.id}`));
+  } catch (e) {
+    try { await exec('ROLLBACK'); } catch { /* ignore */ }
+    if (e instanceof z.ZodError) return res.status(400).send('Invalid input');
+    next(e);
+  }
+});
+app.post('/dashboard/goals/:id/withdraw', requireCustomer, rateLimit({ windowMs:15*60*1000, max:30, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const goal = await getGoalOr404(req.params.id, req.user.id);
+    if (!goal) return res.status(404).send('Not found');
+    const p = z.object({ toAccountId:z.string().uuid(), amount:z.coerce.number().positive().max(1000000), pin:z.string() }).parse(req.body);
+    const toAccount = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [p.toAccountId, req.user.id]);
+    if (!toAccount) return res.status(404).send('Account not found');
+    if (num(goal.account_balance) < p.amount) return res.status(400).send(customerShell('Withdraw from Goal', `<section class="panel state error"><h1>Insufficient balance</h1><p>This goal does not have enough saved for this withdrawal.</p><a class="btn" href="${withAccess(req,'/dashboard/goals/'+goal.id)}">Back</a></section>`, req));
+    const pinResult = await verifyTransactionPin(req, p.pin);
+    if (!pinResult.ok) return res.status(400).send(customerShell('Withdraw from Goal', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(pinResult.message)}</p><a class="btn" href="${withAccess(req,'/dashboard/goals/'+goal.id)}">Back</a></section>`, req));
+    const idk = uid();
+    await exec('BEGIN');
+    await q('UPDATE accounts SET balance=balance-$1 WHERE id=$2', [p.amount, goal.account_id]);
+    await q('UPDATE accounts SET balance=balance+$1 WHERE id=$2', [p.amount, toAccount.id]);
+    await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,reference,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [uid(), goal.account_id, 'Goal Withdrawal', `Withdrawal from ${goal.name}`, -p.amount, goal.account_currency, nowIso(), 'completed', idk, 'SAVINGS_GOAL']);
+    await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,reference,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [uid(), toAccount.id, 'Goal Withdrawal', `Withdrawal to ${toAccount.type}`, p.amount, toAccount.currency, nowIso(), 'completed', idk, 'SAVINGS_GOAL']);
+    await exec('COMMIT');
+    await audit(req, 'SAVINGS_GOAL_WITHDRAWAL', 'savings_goal', goal.id, { amount:p.amount });
+    res.redirect(withAccess(req, `/dashboard/goals/${goal.id}`));
+  } catch (e) {
+    try { await exec('ROLLBACK'); } catch { /* ignore */ }
+    if (e instanceof z.ZodError) return res.status(400).send('Invalid input');
+    next(e);
+  }
+});
+app.post('/dashboard/goals/:id/edit', requireCustomer, async (req,res,next) => {
+  try {
+    const goal = await one('SELECT * FROM savings_goals WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!goal) return res.status(404).send('Not found');
+    const p = goalSchema.parse(req.body);
+    await q('UPDATE savings_goals SET name=$1, target_amount=$2, target_date=$3, updated_at=$4 WHERE id=$5', [p.name, p.targetAmount, p.targetDate||null, nowIso(), goal.id]);
+    await audit(req, 'SAVINGS_GOAL_UPDATED', 'savings_goal', goal.id, {});
+    res.redirect(withAccess(req, `/dashboard/goals/${goal.id}`));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send('Invalid input'); next(e); }
+});
+app.post('/dashboard/goals/:id/cancel', requireCustomer, async (req,res,next) => {
+  try {
+    if (req.body.confirm !== 'YES') return res.status(400).send('Confirmation required');
+    const goal = await one('SELECT * FROM savings_goals WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!goal) return res.status(404).send('Not found');
+    await q("UPDATE savings_goals SET status='cancelled', updated_at=$1 WHERE id=$2", [nowIso(), goal.id]);
+    await audit(req, 'SAVINGS_GOAL_CANCELLED', 'savings_goal', goal.id, {});
+    res.redirect(withAccess(req, '/dashboard/goals'));
+  } catch (e) { next(e); }
+});
+// ==================== end Savings Goals ====================
 app.get('/dashboard/grants', requireCustomer, async (req,res) => {
   const applications = (await q('SELECT * FROM grant_applications WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id])).rows;
   const pending = applications.filter(g=>g.status==='pending');
