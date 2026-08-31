@@ -495,7 +495,7 @@ function adjustmentKind(action, accountType='', reason='') {
   const target = `${accountType} ${reason}`.toLowerCase().includes('saving') ? 'Savings ' : '';
   return target + (isCredit ? 'Deposit' : 'Withdrawal');
 }
-function logo() { return '<span class="mark"><svg viewBox="0 0 44 44"><path d="M22 4 39 16v22H5V16L22 4Z"/><path d="M14 33V17l16 16V17"/></svg></span><span>VESPERA BANK</span>'; }
+function logo() { return '<span class="mark"><svg viewBox="0 0 44 44"><path fill-rule="evenodd" clip-rule="evenodd" d="M13 2H31L42 13V31L31 42H13L2 31V13L13 2Z M14 13H20L22 20L24 13H30L25 30H19Z"/></svg></span><span>VESPERA BANK</span>'; }
 const LANGUAGES = { en:'EN', fr:'FR', rw:'RW', sw:'SW' };
 const STRINGS = {
   en: { atms:'ATMs / Locations', help:'Help', about:'About Us', signon:'Sign On', menu:'Menu', overview:'Overview', home:'Home', accounts:'Accounts', transfer:'Transfer', activity:'Activity', payments:'Payments', cards:'Cards', profile:'Profile', my_profile:'My Profile', security:'Security', identity_verification:'Identity Verification', preferences:'Preferences', help_support:'Help & Support', sign_out:'Sign Out', refer_earn:'Refer & Earn', grants:'Grants', tax_refund:'Tax Refund', loans:'Loans', currency_swap:'Currency Swap' },
