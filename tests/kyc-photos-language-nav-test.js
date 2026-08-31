@@ -91,9 +91,10 @@ console.log('KYC submission with front, back and selfie photos is accepted');
 
 r = await fetch(base + `/dashboard/kyc?access=${access}`, { headers:{cookie} });
 html = await r.text();
-assert.ok(html.includes('data:image/png;base64'));
+assert.ok(!html.includes('data:image/png;base64'), 'customers must never see their own submitted document photos');
+assert.ok(html.includes('✓ Uploaded'));
 assert.ok(html.includes('Pending Review'));
-console.log('Submitted photos render back on the KYC page, status pending');
+console.log('Customer KYC page confirms photos were uploaded, without exposing the images, status pending');
 
 // Admin review page shows the uploaded photos so approval is an informed decision
 r = await fetch(base+'/admin/login',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form({email:'admin@novacapital.test',password:'Admin#2026!'}),redirect:'manual'});
