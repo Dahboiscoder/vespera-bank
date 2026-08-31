@@ -1,0 +1,29 @@
+{
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --allowJs --checkJs false",
+    "test": "node tests/smoke-test.js && node tests/auth-navigation-test.js && node tests/insights-beneficiaries-standing-orders-test.js && node tests/admin-advanced-test.js && node tests/feature-upgrade-test.js && node tests/transfer-support-test.js && node tests/admin-rbac-test.js && node tests/admin-money-math-test.js && node tests/transfer-receipts-test.js && node tests/kyc-photos-language-nav-test.js && node tests/transaction-pin-test.js && node tests/cards-test.js && node tests/transaction-date-test.js && node tests/referral-test.js && node tests/grants-test.js && node tests/twofa-test.js && node tests/loans-test.js && node tests/currency-swap-test.js && node tests/statements-test.js && node tests/live-support-test.js && node tests/transaction-generator-test.js",
+    "security:test": "node tests/security-test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "latest",
+    "cookie-parser": "latest",
+    "dotenv": "^17.4.2",
+    "express": "latest",
+    "express-rate-limit": "latest",
+    "helmet": "latest",
+    "multer": "^2.3.0",
+    "pg": "^8.23.0",
+    "resend": "^6.25.0",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "eslint": "latest",
+    "playwright": "^1.62.1",
+    "typescript": "latest"
+  },
+  "type": "module"
+}
