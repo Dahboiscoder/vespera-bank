@@ -1,5 +1,11 @@
 const body = document.body;
 
+// Some browsers (notably Safari) restore an authenticated page from the
+// back/forward cache after logout despite Cache-Control: no-store, showing a
+// stale customer menu whose links no longer have a valid session. Force a
+// fresh request from the server whenever a page is restored this way.
+window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
+
 document.querySelectorAll('.menu:not(.customer-menu-button)').forEach(button => {
   button.addEventListener('click', () => {
     body.classList.toggle('open');
@@ -109,7 +115,15 @@ document.querySelectorAll('.google-oauth-link').forEach(link => {
 
 document.querySelectorAll('.lang-select').forEach(sel => sel.addEventListener('change', () => sel.form.submit()));
 
-document.getElementById('printReceiptBtn')?.addEventListener('click', () => window.print());
+const printReceiptBtn = document.getElementById('printReceiptBtn');
+printReceiptBtn?.addEventListener('click', () => {
+  const printTitle = printReceiptBtn.getAttribute('data-print-title');
+  if (!printTitle) return window.print();
+  const originalTitle = document.title;
+  document.title = printTitle;
+  window.print();
+  setTimeout(() => { document.title = originalTitle; }, 1000);
+});
 const shareReceiptBtn = document.getElementById('shareReceiptBtn');
 if (shareReceiptBtn && navigator.share) {
   shareReceiptBtn.hidden = false;

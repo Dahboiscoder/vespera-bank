@@ -76,12 +76,12 @@ const accountNo = () => `NC-${crypto.randomInt(10000000, 99999999)}`;
 const publicNav = [['Personal','/personal'],['Business','/business'],['Accounts','/accounts'],['Savings','/savings'],['Cards','/cards'],['Loans','/loans'],['Transfers','/transfers'],['Exchange','/fx'],['Security','/security'],['News','/news'],['Help','/help'],['Contact','/contact']];
 const worldCurrencies = ['USD','EUR','GBP','RWF','NGN','KES','GHS','TZS','AED','AFN','ALL','AMD','ANG','AOA','ARS','AUD','AWG','AZN','BAM','BBD','BDT','BGN','BHD','BIF','BMD','BND','BOB','BRL','BSD','BTN','BWP','BYN','BZD','CAD','CDF','CHF','CLP','CNY','COP','CRC','CUP','CVE','CZK','DJF','DKK','DOP','DZD','EGP','ERN','ETB','FJD','FKP','GEL','GIP','GMD','GNF','GTQ','GYD','HKD','HNL','HTG','HUF','IDR','ILS','INR','IQD','IRR','ISK','JMD','JOD','JPY','KGS','KHR','KMF','KPW','KRW','KWD','KYD','KZT','LAK','LBP','LKR','LRD','LSL','LYD','MAD','MDL','MGA','MKD','MMK','MNT','MOP','MRU','MUR','MVR','MWK','MXN','MYR','MZN','NAD','NIO','NOK','NPR','NZD','OMR','PAB','PEN','PGK','PHP','PKR','PLN','PYG','QAR','RON','RSD','RUB','SAR','SBD','SCR','SDG','SEK','SGD','SHP','SLE','SOS','SRD','SSP','STN','SYP','SZL','THB','TJS','TMT','TND','TOP','TRY','TTD','TWD','UAH','UGX','UYU','UZS','VES','VND','VUV','WST','XAF','XCD','XOF','XPF','YER','ZAR','ZMW','ZWL'];
 
-const adminPerms = ['admin.access','users.read','users.manage','balances.read','balances.adjust','rates.read','rates.manage','transactions.read','fees.manage','products.manage','content.manage','audit.view','security.manage','admin.manage','users.view','users.edit','users.suspend','users.delete','balances.view','balances.add','balances.remove','transactions.view','transactions.approve','transactions.reject','transactions.correct','transactions.reverse','rates.view','fees.view','services.view','services.manage','reports.view','transfers.view','transfers.approve','transfers.reject','transfers.manage','support.view','support.manage','ai.manage','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','grants.manage','loans.view','loans.manage','admin_users.manage'];
+const adminPerms = ['admin.access','users.read','users.manage','balances.read','balances.adjust','rates.read','rates.manage','transactions.read','fees.manage','products.manage','content.manage','audit.view','security.manage','admin.manage','users.view','users.edit','users.suspend','users.delete','balances.view','balances.add','balances.remove','transactions.view','transactions.approve','transactions.reject','transactions.correct','transactions.reverse','rates.view','fees.view','services.view','services.manage','reports.view','transfers.view','transfers.approve','transfers.reject','transfers.manage','support.view','support.manage','ai.manage','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','grants.manage','loans.view','loans.manage','admin_users.manage','bills.view','bills.manage'];
 const customerPerms = ['dashboard.access'];
 const rolePermissions = {
   SUPER_ADMIN: adminPerms,
-  FINANCE_ADMIN: ['admin.access','users.view','balances.read','balances.view','balances.adjust','balances.add','balances.remove','transactions.view','transactions.read','transactions.correct','transactions.approve','transactions.reject','transactions.reverse','transfers.view','transfers.approve','transfers.reject','transfers.manage','kyc.view','cards.view','grants.view','grants.manage','loans.view','loans.manage','rates.view','fees.view','reports.view','audit.view'],
-  SUPPORT_ADMIN: ['admin.access','users.view','users.edit','users.suspend','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','loans.view','support.view','support.manage','transactions.view','balances.view'],
+  FINANCE_ADMIN: ['admin.access','users.view','balances.read','balances.view','balances.adjust','balances.add','balances.remove','transactions.view','transactions.read','transactions.correct','transactions.approve','transactions.reject','transactions.reverse','transfers.view','transfers.approve','transfers.reject','transfers.manage','kyc.view','cards.view','grants.view','grants.manage','loans.view','loans.manage','rates.view','fees.view','reports.view','audit.view','bills.view','bills.manage'],
+  SUPPORT_ADMIN: ['admin.access','users.view','users.edit','users.suspend','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','loans.view','support.view','support.manage','transactions.view','balances.view','bills.view'],
   VIEWER: adminPerms.filter(p => p.endsWith('.view') || p.endsWith('.read') || p === 'admin.access')
 };
 function isSecureRequest(_req) { return true; }
@@ -190,6 +190,11 @@ async function initDb() {
   CREATE TABLE IF NOT EXISTS loan_payments (id TEXT PRIMARY KEY, loan_id TEXT REFERENCES loans(id) ON DELETE CASCADE, installment_number INTEGER NOT NULL, due_date TEXT NOT NULL, amount_due NUMERIC(18,2) NOT NULL, principal_portion NUMERIC(18,2) NOT NULL, interest_portion NUMERIC(18,2) NOT NULL, status TEXT NOT NULL DEFAULT 'scheduled', paid_at TEXT, transaction_id TEXT, recorded_by TEXT, created_at TEXT NOT NULL);
   CREATE INDEX IF NOT EXISTS loan_payments_loan_idx ON loan_payments(loan_id, installment_number);
   CREATE INDEX IF NOT EXISTS grant_applications_user_idx ON grant_applications(user_id, status);
+  CREATE TABLE IF NOT EXISTS billers (id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, description TEXT, reference_label TEXT NOT NULL DEFAULT 'Account / Reference Number', status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS saved_billers (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, biller_id TEXT REFERENCES billers(id) ON DELETE CASCADE, nickname TEXT, reference_number TEXT NOT NULL, created_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS saved_billers_user_idx ON saved_billers(user_id);
+  CREATE TABLE IF NOT EXISTS bill_payments (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, account_id TEXT REFERENCES accounts(id), biller_id TEXT REFERENCES billers(id), saved_biller_id TEXT REFERENCES saved_billers(id), reference_number TEXT NOT NULL, amount NUMERIC(18,2) NOT NULL, currency TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'PENDING', idempotency_key TEXT UNIQUE, transaction_id TEXT REFERENCES transactions(id), failure_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS bill_payments_user_idx ON bill_payments(user_id, created_at);
   `);
   await ensureColumn('users', 'phone', 'TEXT');
   await ensureColumn('users', 'last_login_at', 'TEXT');
@@ -351,6 +356,7 @@ async function seedData(adminRoleId, custRoleId) {
   await ensureRates();
   await ensureProducts();
   await ensureLoanProducts();
+  await ensureBillers();
 }
 async function ensureRates() {
   const desired = [['USD','EUR',0.86,0.89,2.5],['USD','GBP',0.74,0.77,2.5],['USD','KES',129,134,3],['USD','GHS',12.4,13.1,3],['USD','TZS',2620,2700,5],['EUR','USD',1.12,1.16,3],['GBP','USD',1.30,1.35,3]];
@@ -370,6 +376,28 @@ async function ensureProducts() {
 async function ensureLoanProducts() {
   const products = [['Personal Loan','Loans','Unsecured financing for personal expenses.',9.5,500,20000,'enabled'],['Auto Loan','Loans','Financing for a new or used vehicle purchase.',6.5,1000,50000,'enabled'],['Home Improvement Loan','Loans','Financing for renovations and home projects.',7.5,1000,75000,'enabled'],['Home Loan','Loans','Long-term financing for purchasing a home.',5.25,20000,750000,'enabled']];
   for (const p of products) { const exists = await one('SELECT id FROM financial_products WHERE name=$1', [p[0]]); if (!exists) await q('INSERT INTO financial_products VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), ...p]); }
+}
+const BILLER_CATEGORIES = ['Utilities','Mobile & Internet','Insurance','Credit Cards','Government & Tax','Education','Subscriptions'];
+async function ensureBillers() {
+  const count = await one('SELECT COUNT(*)::int c FROM billers');
+  if (count.c > 0) return;
+  const billers = [
+    ['City Power & Light','Utilities','Electricity bill payments.','Utility Account Number'],
+    ['Metro Water Authority','Utilities','Water and sewage bill payments.','Water Account Number'],
+    ['Everstream Gas','Utilities','Residential and commercial gas billing.','Gas Account Number'],
+    ['Northline Mobile','Mobile & Internet','Prepaid and postpaid mobile bills.','Mobile Number'],
+    ['Aeon Broadband','Mobile & Internet','Home internet and cable billing.','Subscriber ID'],
+    ['Guardian Life Insurance','Insurance','Life insurance premium payments.','Policy Number'],
+    ['Harborview Auto Insurance','Insurance','Auto insurance premium payments.','Policy Number'],
+    ['Summit Card Services','Credit Cards','Third-party credit card bill payments.','Card Account Number'],
+    ['State Revenue Office','Government & Tax','Personal income and property tax payments.','Taxpayer ID'],
+    ['Municipal Licensing Office','Government & Tax','Permits, licenses and municipal fees.','Reference Number'],
+    ['Crestline University','Education','Tuition and student account payments.','Student ID'],
+    ['StreamPlex','Subscriptions','Video streaming subscription billing.','Account Email or ID'],
+  ];
+  for (const [name, category, description, reference_label] of billers) {
+    await q('INSERT INTO billers (id,name,category,description,reference_label,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [uid(), name, category, description, reference_label, 'active', nowIso()]);
+  }
 }
 
 async function getCustomer(req) {
@@ -449,20 +477,27 @@ function publicTxType(t) {
   }
   return String(t?.kind || 'Transaction').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
-const STATEMENT_PERIODS = ['this_month','last_month','last_3_months','all_time'];
-function statementPeriodRange(period) {
+const STATEMENT_PERIODS = ['this_month','last_month','last_3_months','last_6_months','ytd','all_time','custom'];
+function statementPeriodRange(period, customFrom, customTo) {
   const now = new Date();
   const y = now.getUTCFullYear(), m = now.getUTCMonth();
   if (period === 'last_month') { const start = new Date(Date.UTC(y, m-1, 1)); const end = new Date(Date.UTC(y, m, 1)); return { start, end, label: start.toLocaleDateString('en-US', { month:'long', year:'numeric' }) }; }
   if (period === 'last_3_months') { const start = new Date(Date.UTC(y, m-3, 1)); return { start, end:null, label:'Last 3 Months' }; }
+  if (period === 'last_6_months') { const start = new Date(Date.UTC(y, m-6, 1)); return { start, end:null, label:'Last 6 Months' }; }
+  if (period === 'ytd') { const start = new Date(Date.UTC(y, 0, 1)); return { start, end:null, label:`Year to Date ${y}` }; }
   if (period === 'all_time') return { start:null, end:null, label:'All Time' };
+  if (period === 'custom' && customFrom && customTo) {
+    const start = new Date(customFrom + 'T00:00:00Z'); const end = new Date(customTo + 'T00:00:00Z');
+    end.setUTCDate(end.getUTCDate() + 1);
+    if (!isNaN(start) && !isNaN(end) && start < end) return { start, end, label: `${fmt(customFrom)} – ${fmt(customTo)}` };
+  }
   const start = new Date(Date.UTC(y, m, 1));
   return { start, end:null, label: start.toLocaleDateString('en-US', { month:'long', year:'numeric' }) };
 }
-function buildStatement(account, accountTxDesc, period) {
+function buildStatement(account, accountTxDesc, period, customFrom, customTo) {
   let bal = num(account.balance);
   const withRunning = accountTxDesc.map(t => { const row = { ...t, runningBalance: bal }; bal -= num(t.amount); return row; });
-  const { start, end, label } = statementPeriodRange(period);
+  const { start, end, label } = statementPeriodRange(period, customFrom, customTo);
   const periodRowsDesc = withRunning.filter(t => {
     const d = new Date(t.transaction_date || t.created_at);
     if (start && d < start) return false;
@@ -474,7 +509,12 @@ function buildStatement(account, accountTxDesc, period) {
   const closingBalance = rows.length ? rows[rows.length-1].runningBalance : num(account.balance);
   const totalIn = rows.filter(t=>num(t.amount)>=0).reduce((s,t)=>s+num(t.amount), 0);
   const totalOut = rows.filter(t=>num(t.amount)<0).reduce((s,t)=>s+Math.abs(num(t.amount)), 0);
-  return { rows, openingBalance, closingBalance, totalIn, totalOut, label };
+  const isoDate = d => d.toISOString().slice(0,10);
+  const lastTxDate = rows.length ? new Date(rows[rows.length-1].transaction_date || rows[rows.length-1].created_at) : new Date();
+  const firstTxDate = rows.length ? new Date(rows[0].transaction_date || rows[0].created_at) : new Date();
+  const periodStart = isoDate(start || firstTxDate);
+  const periodEnd = isoDate(end ? new Date(end.getTime() - 86400000) : lastTxDate);
+  return { rows, openingBalance, closingBalance, totalIn, totalOut, label, periodStart, periodEnd };
 }
 function activityIcon(typeLabel) {
   const t = String(typeLabel || '').toLowerCase();
@@ -934,14 +974,14 @@ function txTable(rows) {
 
 function avatar(name='User') { return String(name).split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.toUpperCase()).join('') || 'U'; }
 function customerShell(title, inner, req, opts={}) {
-  const nav = [[t(req,'overview'),'/dashboard'],[t(req,'accounts'),'/dashboard/accounts'],[t(req,'transfer'),'/dashboard/transfers'],[t(req,'activity'),'/dashboard/transactions'],[t(req,'payments'),'/dashboard/transfers/deposit'],[t(req,'cards'),'/dashboard/cards']];
+  const nav = [[t(req,'overview'),'/dashboard'],[t(req,'accounts'),'/dashboard/accounts'],[t(req,'transfer'),'/dashboard/transfers'],[t(req,'activity'),'/dashboard/transactions'],[t(req,'payments'),'/dashboard/transfers/deposit'],['Bills','/dashboard/bills'],[t(req,'cards'),'/dashboard/cards']];
   const bottom = [[t(req,'home'),'/dashboard','⌂'],[t(req,'accounts'),'/dashboard/accounts','▣'],[t(req,'transfer'),'/dashboard/transfers','⇄'],[t(req,'activity'),'/dashboard/transactions','☷'],[t(req,'profile'),'/dashboard/profile','◌']];
   const navMatch = u => u === '/dashboard' ? req.path === '/dashboard' : (req.path === u || req.path.startsWith(u + '/'));
   const activeUrl = [...new Set([...nav.map(x=>x[1]), ...bottom.map(x=>x[1])])].filter(navMatch).sort((a,b)=>b.length-a.length)[0];
   const navLinks = nav.map(([n,u])=>`<li><a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a></li>`).join('');
   const mobileLinks = [...nav, ['Insights','/dashboard/insights'], ['Beneficiaries','/dashboard/beneficiaries'], ['Standing Orders','/dashboard/standing-orders'], [t(req,'security'),'/dashboard/security'], [t(req,'identity_verification'),'/dashboard/kyc'], [t(req,'refer_earn'),'/dashboard/refer'], [t(req,'grants'),'/dashboard/grants'], [t(req,'loans'),'/dashboard/loans'], [t(req,'currency_swap'),'/dashboard/currency-swap'], [t(req,'tax_refund'),'/dashboard/tax-refund'], [t(req,'help_support'),'/support/chat'], [t(req,'sign_out'),'/logout']].map(([n,u])=>`<li><a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a></li>`).join('');
   const verifyBanners = `${req.user.kyc_status!=='approved'?`<div class="verify-banner warn"><span class="icon">⚠</span><p>You haven't verified your identity yet. Until you do you can receive money but not send it. <a href="${withAccess(req,'/dashboard/kyc')}">Verify now →</a></p></div>`:''}${!req.user.email_verified_at?`<div class="verify-banner soft"><p>Your email isn't verified yet. <a href="${withAccess(req,'/dashboard/security')}">Verify now →</a></p></div>`:''}`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="customer-app" data-theme="${req.user.theme_preference==='dark'?'dark':'light'}"><header class="customer-header"><div class="customer-header-main"><a class="brand customer-brand" href="${withAccess(req,'/dashboard')}">${logo()}</a><nav class="customer-desktop-nav" aria-label="Secure banking navigation"><ul>${navLinks}</ul></nav><form class="customer-search" action="/dashboard/transactions"><input name="q" placeholder="Search" aria-label="Search transactions and activity">${hiddenAccess(req)}</form>${langSwitcher(req)}<a class="customer-icon" href="${withAccess(req,'/dashboard/notifications')}" aria-label="Notifications">◌<sup>${req.user.unread_notifications}</sup></a><div class="customer-profile"><button type="button" class="customer-avatar" aria-label="Profile menu" aria-expanded="false"><span>${esc(avatar(req.user.name))}</span></button><div class="customer-profile-panel" role="menu" hidden><a href="${withAccess(req,'/dashboard/profile')}">${t(req,'my_profile')}</a><a href="${withAccess(req,'/dashboard/security')}">${t(req,'security')}</a><a href="${withAccess(req,'/dashboard/kyc')}">${t(req,'identity_verification')}</a><a href="${withAccess(req,'/dashboard/refer')}">${t(req,'refer_earn')}</a><a href="${withAccess(req,'/dashboard/grants')}">${t(req,'grants')}</a><a href="${withAccess(req,'/dashboard/loans')}">${t(req,'loans')}</a><a href="${withAccess(req,'/dashboard/currency-swap')}">${t(req,'currency_swap')}</a><a href="${withAccess(req,'/dashboard/tax-refund')}">${t(req,'tax_refund')}</a><a href="${withAccess(req,'/dashboard/insights')}">Insights</a><a href="${withAccess(req,'/dashboard/beneficiaries')}">Beneficiaries</a><a href="${withAccess(req,'/dashboard/standing-orders')}">Standing Orders</a><a href="${withAccess(req,'/dashboard/settings')}">${t(req,'preferences')}</a><a href="${withAccess(req,'/support/chat')}">${t(req,'help_support')}</a><a href="${withAccess(req,'/logout')}">${t(req,'sign_out')}</a></div></div><details class="customer-menu-details"><summary>Menu</summary><nav class="customer-mobile-drawer" id="customerMobileNav" aria-label="Mobile banking navigation"><ul>${mobileLinks}</ul></nav></details></div></header>${verifyBanners}<main class="customer-main">${inner}</main><form class="sr-only" method="post" action="/logout"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}</form><nav class="customer-bottom-nav" aria-label="Mobile bottom navigation">${bottom.map(([n,u,i])=>`<a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}"><span>${i}</span>${n}</a>`).join('')}</nav>${opts.hideFab?'':aiWidget()}<script src="/assets/app.js"></script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="customer-app" data-theme="${req.user.theme_preference==='dark'?'dark':'light'}"><header class="customer-header"><div class="customer-header-main"><a class="brand customer-brand" href="${withAccess(req,'/dashboard')}">${logo()}</a><nav class="customer-desktop-nav" aria-label="Secure banking navigation"><ul>${navLinks}</ul></nav><form class="customer-search" action="/dashboard/transactions"><input name="q" placeholder="Search" aria-label="Search transactions and activity">${hiddenAccess(req)}</form>${langSwitcher(req)}<a class="customer-icon" href="${withAccess(req,'/dashboard/notifications')}" aria-label="Notifications">◌<sup>${req.user.unread_notifications}</sup></a><div class="customer-profile"><button type="button" class="customer-avatar" aria-label="Profile menu" aria-expanded="false"><span>${esc(avatar(req.user.name))}</span></button><div class="customer-profile-panel" role="menu" hidden><a href="${withAccess(req,'/dashboard/profile')}">${t(req,'my_profile')}</a><a href="${withAccess(req,'/dashboard/security')}">${t(req,'security')}</a><a href="${withAccess(req,'/dashboard/kyc')}">${t(req,'identity_verification')}</a><a href="${withAccess(req,'/dashboard/refer')}">${t(req,'refer_earn')}</a><a href="${withAccess(req,'/dashboard/bills')}">Bills</a><a href="${withAccess(req,'/dashboard/grants')}">${t(req,'grants')}</a><a href="${withAccess(req,'/dashboard/loans')}">${t(req,'loans')}</a><a href="${withAccess(req,'/dashboard/currency-swap')}">${t(req,'currency_swap')}</a><a href="${withAccess(req,'/dashboard/tax-refund')}">${t(req,'tax_refund')}</a><a href="${withAccess(req,'/dashboard/insights')}">Insights</a><a href="${withAccess(req,'/dashboard/beneficiaries')}">Beneficiaries</a><a href="${withAccess(req,'/dashboard/standing-orders')}">Standing Orders</a><a href="${withAccess(req,'/dashboard/settings')}">${t(req,'preferences')}</a><a href="${withAccess(req,'/support/chat')}">${t(req,'help_support')}</a><a href="${withAccess(req,'/logout')}">${t(req,'sign_out')}</a></div></div><details class="customer-menu-details"><summary>Menu</summary><nav class="customer-mobile-drawer" id="customerMobileNav" aria-label="Mobile banking navigation"><ul>${mobileLinks}</ul></nav></details></div></header>${verifyBanners}<main class="customer-main">${inner}</main><form class="sr-only" method="post" action="/logout"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}</form><nav class="customer-bottom-nav" aria-label="Mobile bottom navigation">${bottom.map(([n,u,i])=>`<a class="${u===activeUrl?'active':''}" href="${withAccess(req,u)}"><span>${i}</span>${n}</a>`).join('')}</nav>${opts.hideFab?'':aiWidget()}<script src="/assets/app.js"></script></body></html>`;
 }
 
 async function customerDashboard(req,res) {
@@ -1592,17 +1632,21 @@ app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await pro
     notificationRows = (await q('SELECT * FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50', [req.user.id])).rows;
     await q("UPDATE notifications SET status='read' WHERE user_id=$1 AND status='unread'", [req.user.id]);
   }
-  let statement = null, statementAccount = null, statementPeriod = 'this_month';
+  let statement = null, statementAccount = null, statementPeriod = 'this_month', statementFrom = '', statementTo = '';
   if (s==='statements' && req.query.accountId) {
     statementAccount = accounts.find(a => a.id === req.query.accountId);
     if (statementAccount) {
       statementPeriod = STATEMENT_PERIODS.includes(req.query.period) ? req.query.period : 'this_month';
+      statementFrom = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from||'') ? req.query.from : '';
+      statementTo = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to||'') ? req.query.to : '';
+      if (statementFrom && statementTo) statementPeriod = 'custom';
       const accountTx = (await q('SELECT * FROM transactions WHERE account_id=$1 ORDER BY created_at DESC', [statementAccount.id])).rows;
-      statement = buildStatement(statementAccount, accountTx, statementPeriod);
+      statement = buildStatement(statementAccount, accountTx, statementPeriod, statementFrom, statementTo);
     }
   }
   const kycStatus = kycRow?.status || 'not_submitted';
-  const profileNav = '<nav class="profile-tabs"><a>Personal Information</a><a>Account</a><a>Security</a><a>Notifications</a><a>Preferences</a><a>Linked Accounts</a><a>Documents</a><a>Statements</a><a>Support</a></nav>';
+  const profileNavLinks = [['Overview & Personal Info','/dashboard/profile'],['Security','/dashboard/security'],['Notifications','/dashboard/notifications'],['Preferences','/dashboard/settings'],['Statements','/dashboard/statements'],['Bills','/dashboard/bills'],['Help & Support','/support']];
+  const profileNav = `<nav class="profile-tabs">${profileNavLinks.map(([n,u])=>`<a class="${req.path===u?'active':''}" href="${withAccess(req,u)}">${esc(n)}</a>`).join('')}</nav>`;
   let content;
   if (s==='accounts') content = `<section class="page-head"><h2>Accounts</h2><p>View balances, account status and available account actions.</p></section><div class="account-grid">${accounts.map(a=>`<article class="account-card"><span>${esc(a.type)}</span><h3>${money(a.balance)}</h3><p>Available balance ${money(a.balance)}</p><small>•••• ${esc(a.account_no).slice(-4)} · ${esc(a.currency)} · ${esc(a.status)}</small><div><a class="btn small" href="${withAccess(req,'/dashboard/transactions')}">View</a><a class="btn small secondary" href="${withAccess(req,'/dashboard/transfers')}">Transfer</a><a class="btn small ghost" href="${withAccess(req,'/dashboard/statements')}">Statements</a></div></article>`).join('')}</div>`;
   else if (s==='transactions') {
@@ -1631,7 +1675,22 @@ app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await pro
   else if (s==='profile') {
     const firstName = req.user.name.split(' ')[0] || '';
     const lastName = req.user.name.split(' ').slice(1).join(' ') || '';
-    content = `<section class="profile-center"><aside>${profileNav}</aside><div><section class="profile-hero"><div class="avatar big">${esc(avatar(req.user.name))}</div><div><h2>${esc(req.user.name)}</h2><p>${kycBadge(kycStatus)} Member since ${fmt(req.user.created_at)} · Account status Active</p><p>${esc(req.user.email)} · ${esc(req.user.phone||'Phone not set')}</p><a href="${withAccess(req,'/dashboard/kyc')}">${kycStatus==='approved'?'View identity verification':'Verify your identity'} ›</a></div></section><section class="panel"><h2>Personal Information</h2><div class="info-grid"><p><b>First Name</b><span>${esc(firstName)}</span></p><p><b>Last Name</b><span>${esc(lastName)}</span></p><p><b>Email</b><span>${esc(req.user.email)}</span></p><p><b>Phone</b><span>${esc(req.user.phone||'—')}</span></p><p><b>Country</b><span>${esc(req.user.country||'—')}</span></p><p><b>City</b><span>${esc(req.user.city||'—')}</span></p></div></section><section class="panel"><h2>Edit Profile</h2>${req.query.saved?'<p class="notice">Profile updated.</p>':''}<form class="inline" method="post" action="${withAccess(req,'/dashboard/profile/edit')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>First Name<input name="first_name" value="${esc(firstName)}" required maxlength="60"></label><label>Last Name<input name="last_name" value="${esc(lastName)}" maxlength="60"></label><label>Phone<input name="phone" value="${esc(req.user.phone||'')}" maxlength="30"></label><label>Country<input name="country" value="${esc(req.user.country||'')}" maxlength="60"></label><label>City<input name="city" value="${esc(req.user.city||'')}" maxlength="60"></label><button class="btn secondary">Save changes</button></form></section></div></section>`;
+    const editMode = req.query.edit === '1';
+    let editValues = { first_name:firstName, last_name:lastName, phone:req.user.phone||'', country:req.user.country||'', city:req.user.city||'' };
+    let editError = '';
+    if (req.cookies.profile_edit_flash) {
+      try { const flash = JSON.parse(req.cookies.profile_edit_flash); editError = flash.error || ''; editValues = { ...editValues, ...flash.values }; } catch { /* ignore malformed flash cookie */ }
+      res.clearCookie('profile_edit_flash', noticeCookieOptions(req, 0));
+    }
+    const overviewSection = `<section class="profile-hero"><div class="avatar big">${esc(avatar(req.user.name))}</div><div><h2>${esc(req.user.name)}</h2><p>${kycBadge(kycStatus)} Member since ${fmt(req.user.created_at)} · Account status Active</p><p>${esc(req.user.email)} · ${esc(req.user.phone||'Phone not set')}</p><a href="${withAccess(req,'/dashboard/kyc')}">${kycStatus==='approved'?'View identity verification':'Verify your identity'} ›</a></div></section>`;
+    let infoSection;
+    if (!editMode) {
+      infoSection = `<section class="panel"><h2>Personal Information</h2>${req.query.saved?'<p class="notice">Profile updated.</p>':''}<div class="info-grid"><p><b>First Name</b><span>${esc(firstName)}</span></p><p><b>Last Name</b><span>${esc(lastName||'—')}</span></p><p><b>Email</b><span>${esc(req.user.email)}</span></p></div></section><section class="panel"><h2>Contact Information</h2><div class="info-grid"><p><b>Phone</b><span>${esc(req.user.phone||'—')}</span></p></div></section><section class="panel"><h2>Address</h2><div class="info-grid"><p><b>Country</b><span>${esc(req.user.country||'—')}</span></p><p><b>City</b><span>${esc(req.user.city||'—')}</span></p></div><a class="btn secondary" href="${withAccess(req,'/dashboard/profile?edit=1')}">Edit Profile</a></section>`;
+    } else {
+      infoSection = `<section class="panel"><h2>Edit Profile</h2>${editError?`<p class="error-text">${esc(editError)}</p>`:''}<form class="inline" method="post" action="${withAccess(req,'/dashboard/profile/edit')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>First Name<input name="first_name" value="${esc(editValues.first_name)}" required maxlength="60"></label><label>Last Name<input name="last_name" value="${esc(editValues.last_name)}" maxlength="60"></label><label>Email<input value="${esc(req.user.email)}" disabled></label><label>Phone<input name="phone" value="${esc(editValues.phone)}" maxlength="30"></label><label>Country<input name="country" value="${esc(editValues.country)}" maxlength="60"></label><label>City<input name="city" value="${esc(editValues.city)}" maxlength="60"></label><div class="quick-actions"><button class="btn">Save changes</button><a class="btn ghost" href="${withAccess(req,'/dashboard/profile')}">Cancel</a></div></form></section>`;
+    }
+    const securityCard = `<section class="panel"><h2>Security</h2><div class="security-grid"><article><b>2FA</b><span>${req.user.twofa_enabled_at?'Enabled':'Not Enabled'}</span></article><article><b>Email Verified</b><span>${req.user.email_verified_at?'Yes':'No'}</span></article><article><b>Transaction PIN</b><span>${req.user.transaction_pin_hash?'Set':'Not Set'}</span></article><article><b>Identity Verified</b><span>${kycStatus==='approved'?'Yes':'No'}</span></article></div><p>Manage two-factor authentication, your transaction PIN, active sessions and login history from Security settings.</p><a class="btn secondary" href="${withAccess(req,'/dashboard/security')}">Manage Security →</a></section>`;
+    content = `<section class="profile-center"><aside>${profileNav}</aside><div>${overviewSection}${infoSection}${securityCard}</div></section>`;
   }
   else if (s==='security') {
     const score = (req.user.email_verified_at?20:0) + (req.user.kyc_status==='approved'?20:0) + (req.user.transaction_pin_hash?20:0) + (req.user.twofa_enabled_at?30:0) + 10;
@@ -1670,12 +1729,14 @@ app.get('/dashboard', requireCustomer, async (req,res,next) => { try { await pro
     content = `<section class="page-head"><h2>Preferences</h2><p>Customize language, currency display and date format for your account.</p></section>${req.query.saved?'<p class="notice">Preferences saved.</p>':''}<section class="panel"><h2>Language</h2><form class="inline" method="get" action="/set-language"><input type="hidden" name="return_to" value="${esc(withAccess(req,'/dashboard/settings'))}"><label>Interface language<select name="lang">${Object.entries(LANGUAGES).map(([code,label])=>`<option value="${code}" ${code===(req.cookies?.lang||'en')?'selected':''}>${esc(label)}</option>`).join('')}</select></label><button class="btn secondary">Save language</button></form></section><section class="panel"><h2>Currency &amp; Date Display</h2>${currencyPreview}<form class="inline" method="post" action="${withAccess(req,'/dashboard/settings')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Preferred display currency<select name="preferred_currency">${worldCurrencies.map(c=>`<option ${c===req.user.preferred_currency?'selected':''}>${c}</option>`).join('')}</select></label><label>Date format<select name="date_format">${DATE_FORMAT_OPTIONS.map(f=>`<option value="${f}" ${f===req.user.date_format?'selected':''}>${esc(formatDateStyle(new Date(), f))}</option>`).join('')}</select></label><label>Appearance<select name="theme_preference"><option value="light" ${req.user.theme_preference!=='dark'?'selected':''}>Light</option><option value="dark" ${req.user.theme_preference==='dark'?'selected':''}>Dark</option></select></label><button class="btn">Save preferences</button></form></section>`;
   }
   else if (s==='statements') {
-    const periodLabels = { this_month:'This Month', last_month:'Last Month', last_3_months:'Last 3 Months', all_time:'All Time' };
-    const picker = `<section class="panel statement-picker"><h2>Generate a Statement</h2><form class="inline" method="get" action="${withAccess(req,'/dashboard/statements')}">${hiddenAccess(req)}<label>Account<select name="accountId">${accounts.map(a=>`<option value="${a.id}" ${statementAccount && a.id===statementAccount.id?'selected':''}>${esc(a.type)} · •••• ${esc(String(a.account_no||'').slice(-4))}</option>`).join('')}</select></label><label>Period<select name="period">${STATEMENT_PERIODS.map(p=>`<option value="${p}" ${p===statementPeriod?'selected':''}>${periodLabels[p]}</option>`).join('')}</select></label><button class="btn">Generate Statement</button></form></section>`;
+    const periodLabels = { this_month:'This Month', last_month:'Last Month', last_3_months:'Last 3 Months', last_6_months:'Last 6 Months', ytd:'Year to Date', all_time:'All Time', custom:'Custom Range' };
+    const picker = `<section class="panel statement-picker"><h2>Generate a Statement</h2><form class="inline" method="get" action="${withAccess(req,'/dashboard/statements')}">${hiddenAccess(req)}<label>Account<select name="accountId">${accounts.map(a=>`<option value="${a.id}" ${statementAccount && a.id===statementAccount.id?'selected':''}>${esc(a.type)} · •••• ${esc(String(a.account_no||'').slice(-4))}</option>`).join('')}</select></label><label>Period<select name="period">${STATEMENT_PERIODS.filter(p=>p!=='custom').map(p=>`<option value="${p}" ${p===statementPeriod?'selected':''}>${periodLabels[p]}</option>`).join('')}</select></label><label>Custom range from<input type="date" name="from" value="${esc(statementFrom)}"></label><label>Custom range to<input type="date" name="to" value="${esc(statementTo)}"></label><button class="btn">Generate Statement</button></form><p class="small-copy">Fill in both custom-range dates to use them instead of the Period selection above.</p></section>`;
     let panel = '';
     if (statementAccount && statement) {
+      const last4 = esc(String(statementAccount.account_no||'').slice(-4));
+      const printFilename = `Statement_${esc(statementAccount.type).replace(/\s+/g,'')}_x${last4}_${statement.periodStart}_${statement.periodEnd}`;
       const rowsHtml = statement.rows.length ? statement.rows.map(t=>{ const typeLabel = publicTxType(t); const isCredit = num(t.amount) >= 0; return `<div class="statement-row"><span class="stmt-date">${fmt(t.transaction_date||t.created_at)}</span><span class="stmt-desc"><span class="activity-icon ${isCredit?'credit':'debit'}" aria-hidden="true">${activityIcon(typeLabel)}</span>${esc(cleanCopy(t.description || t.reference || 'Transaction'))}</span><span class="stmt-in pos">${isCredit ? money(t.amount) : '—'}</span><span class="stmt-out neg">${!isCredit ? money(Math.abs(num(t.amount))) : '—'}</span><span class="stmt-balance">${money(t.runningBalance)}</span></div>`; }).join('') : '<div class="empty-pro activity-empty-state"><h3>No activity in this period</h3><p>Try a different account or period.</p></div>';
-      panel = `<section class="panel statement-panel" id="statementPanel"><div class="statement-letterhead"><div class="statement-brand">${logo()}<span>VESPERA BANK</span></div><div class="statement-meta"><b>Account Statement</b><span>${esc(statement.label)}</span></div></div><div class="statement-parties"><div><span>Account Holder</span><b>${esc(req.user.name)}</b><p>${esc(req.user.email)}</p></div><div><span>Account</span><b>${esc(statementAccount.type)}</b><p>•••• ${esc(String(statementAccount.account_no||'').slice(-4))} · ${esc(statementAccount.iban||'—')}</p></div></div><div class="statement-summary-grid"><article><span>Opening Balance</span><b>${money(statement.openingBalance)}</b></article><article><span>Money In</span><b class="pos">+${money(statement.totalIn)}</b></article><article><span>Money Out</span><b class="neg">-${money(statement.totalOut)}</b></article><article><span>Closing Balance</span><b>${money(statement.closingBalance)}</b></article></div><div class="statement-table with-balance"><div class="statement-row statement-head"><span class="stmt-date">Date</span><span class="stmt-desc">Description</span><span class="stmt-in">Money In</span><span class="stmt-out">Money Out</span><span class="stmt-balance">Balance</span></div>${rowsHtml}</div><div class="quick-actions statement-actions"><button type="button" class="btn secondary" id="printReceiptBtn">Print / Save PDF</button><a class="btn ghost" href="${withAccess(req,`/dashboard/statements/download.csv?accountId=${statementAccount.id}&period=${statementPeriod}`)}">Download CSV</a></div></section>`;
+      panel = `<section class="panel statement-panel" id="statementPanel"><div class="statement-letterhead"><div class="statement-brand">${logo()}<span>VESPERA BANK</span></div><div class="statement-meta"><b>Account Statement</b><span>${esc(statement.label)}</span></div></div><div class="statement-parties"><div><span>Account Holder</span><b>${esc(req.user.name)}</b><p>${esc(req.user.email)}</p></div><div><span>Account</span><b>${esc(statementAccount.type)}</b><p>•••• ${esc(String(statementAccount.account_no||'').slice(-4))} · ${esc(statementAccount.iban||'—')}</p></div></div><div class="statement-summary-grid"><article><span>Opening Balance</span><b>${money(statement.openingBalance)}</b></article><article><span>Money In</span><b class="pos">+${money(statement.totalIn)}</b></article><article><span>Money Out</span><b class="neg">-${money(statement.totalOut)}</b></article><article><span>Closing Balance</span><b>${money(statement.closingBalance)}</b></article></div><div class="statement-table with-balance"><div class="statement-row statement-head"><span class="stmt-date">Date</span><span class="stmt-desc">Description</span><span class="stmt-in">Money In</span><span class="stmt-out">Money Out</span><span class="stmt-balance">Balance</span></div>${rowsHtml}</div><div class="quick-actions statement-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="${esc(printFilename)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,`/dashboard/statements/download.csv?accountId=${statementAccount.id}&period=${statementPeriod}&from=${statementFrom}&to=${statementTo}`)}">Download CSV</a></div></section>`;
     } else if (req.query.accountId) {
       panel = '<section class="panel state error"><h1>Account not found</h1><p>Please choose one of your own accounts.</p></section>';
     }
@@ -1704,14 +1765,25 @@ app.post('/dashboard/profile/edit', requireCustomer, async (req,res,next) => {
     await q('UPDATE users SET name=$1, phone=$2, country=$3, city=$4 WHERE id=$5', [name, p.phone||null, p.country||null, p.city||null, req.user.id]);
     await audit(req, 'PROFILE_UPDATED', 'user', req.user.id, { name, phone:p.phone, country:p.country, city:p.city });
     res.redirect(withAccess(req, '/dashboard/profile?saved=1'));
-  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send('Invalid input'); next(e); }
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      const values = { first_name:req.body.first_name||'', last_name:req.body.last_name||'', phone:req.body.phone||'', country:req.body.country||'', city:req.body.city||'' };
+      res.cookie('profile_edit_flash', JSON.stringify({ error: e.issues[0]?.message || 'Please check the highlighted fields.', values }), noticeCookieOptions(req, 60*1000));
+      return res.redirect(withAccess(req, '/dashboard/profile?edit=1'));
+    }
+    next(e);
+  }
 });
-app.get('/dashboard/statements/download.csv', requireCustomer, async (req,res) => {
+app.get('/dashboard/statements/download.csv', requireCustomer, async (req,res,next) => {
+ try {
   const account = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [req.query.accountId, req.user.id]);
   if (!account) return res.status(404).send('Account not found');
-  const period = STATEMENT_PERIODS.includes(req.query.period) ? req.query.period : 'this_month';
+  let period = STATEMENT_PERIODS.includes(req.query.period) ? req.query.period : 'this_month';
+  const customFrom = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from||'') ? req.query.from : '';
+  const customTo = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to||'') ? req.query.to : '';
+  if (customFrom && customTo) period = 'custom';
   const accountTx = (await q('SELECT * FROM transactions WHERE account_id=$1 ORDER BY created_at DESC', [account.id])).rows;
-  const statement = buildStatement(account, accountTx, period);
+  const statement = buildStatement(account, accountTx, period, customFrom, customTo);
   const escCsv = v => `"${String(v).replace(/"/g,'""')}"`;
   const lines = ['Date,Type,Description,Money In,Money Out,Balance'];
   for (const t of statement.rows) {
@@ -1719,9 +1791,11 @@ app.get('/dashboard/statements/download.csv', requireCustomer, async (req,res) =
     lines.push([escCsv(fmt(t.transaction_date||t.created_at)), escCsv(publicTxType(t)), escCsv(cleanCopy(t.description || t.reference || 'Transaction')), isCredit?num(t.amount).toFixed(2):'', !isCredit?Math.abs(num(t.amount)).toFixed(2):'', num(t.runningBalance).toFixed(2)].join(','));
   }
   await audit(req, 'STATEMENT_DOWNLOADED', 'account', account.id, { period });
+  const last4 = String(account.account_no||'').slice(-4);
   res.set('Content-Type', 'text/csv; charset=utf-8');
-  res.set('Content-Disposition', `attachment; filename="vespera-statement-${account.account_no}-${period}.csv"`);
+  res.set('Content-Disposition', `attachment; filename="Statement_${String(account.type).replace(/\s+/g,'')}_x${last4}_${statement.periodStart}_${statement.periodEnd}.csv"`);
   res.send(lines.join('\n'));
+ } catch (e) { next(e); }
 });
 const cardApplySchema = z.object({ network:z.enum(['Visa','Mastercard']), spendingLimit:z.coerce.number().positive().max(1000000) });
 app.post('/dashboard/cards/apply', requireCustomer, async (req,res,next) => {
@@ -1868,6 +1942,133 @@ app.post('/dashboard/currency-swap/submit', requireCustomer, async (req,res,next
     next(e);
   }
 });
+// ==================== Bill Payments ====================
+function billerNav(req) { return `<div class="transfer-nav"><a href="${withAccess(req,'/dashboard/bills')}">Pay Bills</a><a href="${withAccess(req,'/dashboard/bills/billers')}">Billers</a><a href="${withAccess(req,'/dashboard/bills/history')}">Payment History</a></div>`; }
+async function getBillerOr404(id) { return one("SELECT * FROM billers WHERE id=$1 AND status='active'", [id]); }
+app.get('/dashboard/bills', requireCustomer, async (req,res,next) => {
+  try {
+    const saved = (await q('SELECT sb.*, b.name biller_name, b.category, b.reference_label FROM saved_billers sb JOIN billers b ON b.id=sb.biller_id WHERE sb.user_id=$1 ORDER BY sb.created_at DESC', [req.user.id])).rows;
+    const recent = (await q('SELECT bp.*, b.name biller_name FROM bill_payments bp JOIN billers b ON b.id=bp.biller_id WHERE bp.user_id=$1 ORDER BY bp.created_at DESC LIMIT 5', [req.user.id])).rows;
+    const editSaved = req.query.editSaved ? saved.find(s => s.id === req.query.editSaved) : null;
+    const savedCard = s => {
+      if (editSaved && s.id === editSaved.id) return `<article class="account-card"><span>${esc(s.category)}</span><h3>Edit ${esc(s.biller_name)}</h3><form class="inline" method="post" action="${withAccess(req,`/dashboard/bills/saved/${s.id}/edit`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<label>Nickname<input name="nickname" value="${esc(s.nickname||'')}" maxlength="60"></label><label>${esc(s.reference_label)}<input name="referenceNumber" value="${esc(s.reference_number)}" required maxlength="60"></label><div class="quick-actions"><button class="btn small">Save</button><a class="btn small ghost" href="${withAccess(req,'/dashboard/bills')}">Cancel</a></div></form></article>`;
+      return `<article class="account-card"><span>${esc(s.category)}</span><h3>${esc(s.nickname||s.biller_name)}</h3><p>${esc(s.biller_name)}</p><small>Ref •••• ${esc(String(s.reference_number).slice(-4))}</small><div><a class="btn small" href="${withAccess(req,`/dashboard/bills/pay?savedBillerId=${s.id}`)}">Pay Now</a><a class="btn small ghost" href="${withAccess(req,`/dashboard/bills?editSaved=${s.id}`)}">Edit</a><form class="inline" method="post" action="${withAccess(req,`/dashboard/bills/saved/${s.id}/delete`)}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<button class="btn small ghost">Remove</button></form></div></article>`;
+    };
+    const savedHtml = saved.length ? `<div class="account-grid">${saved.map(savedCard).join('')}</div>` : '<section class="panel empty-pro"><h3>No saved billers yet</h3><p>Save a biller for faster repeat payments from the directory below.</p></section>';
+    const categoriesHtml = `<div class="account-grid">${BILLER_CATEGORIES.map(c=>`<a class="btn secondary wide" href="${withAccess(req,`/dashboard/bills/billers?category=${encodeURIComponent(c)}`)}">${esc(c)}</a>`).join('')}</div>`;
+    const recentHtml = recent.length ? `<table><tr><th>Biller</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr>${recent.map(r=>`<tr><td>${esc(r.biller_name)}</td><td>${money(r.amount)}</td><td><span class="status ${esc(String(r.status).toLowerCase())}">${esc(r.status)}</span></td><td>${fmt(r.created_at)}</td><td><a class="btn small ghost" href="${withAccess(req,`/dashboard/bills/${r.id}`)}">View</a></td></tr>`).join('')}</table>` : '<p class="empty">No bill payments yet.</p>';
+    res.send(customerShell('Pay Bills', `<section class="page-head"><h2>Pay Bills</h2><p>Pay utilities, mobile, insurance and more directly from your accounts.</p></section>${billerNav(req)}<section class="panel"><h2>Saved Billers</h2>${savedHtml}</section><section class="panel"><h2>Browse by Category</h2>${categoriesHtml}</section><section class="panel"><h2>Recent Payments</h2>${recentHtml}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/dashboard/bills/billers', requireCustomer, async (req,res,next) => {
+  try {
+    const category = BILLER_CATEGORIES.includes(req.query.category) ? req.query.category : null;
+    const rows = (await q(category ? "SELECT * FROM billers WHERE status='active' AND category=$1 ORDER BY name" : "SELECT * FROM billers WHERE status='active' ORDER BY category, name", category ? [category] : [])).rows;
+    const list = rows.length ? `<div class="account-grid">${rows.map(b=>`<article class="account-card"><span>${esc(b.category)}</span><h3>${esc(b.name)}</h3><p>${esc(b.description||'')}</p><div><a class="btn small" href="${withAccess(req,`/dashboard/bills/pay?billerId=${b.id}`)}">Pay</a></div></article>`).join('')}</div>` : '<p class="empty">No billers found in this category.</p>';
+    const filterForm = `<form class="inline" method="get" action="${withAccess(req,'/dashboard/bills/billers')}">${hiddenAccess(req)}<label>Category<select name="category"><option value="">All Categories</option>${BILLER_CATEGORIES.map(c=>`<option value="${esc(c)}" ${c===category?'selected':''}>${esc(c)}</option>`).join('')}</select></label><button class="btn small">Filter</button></form>`;
+    res.send(customerShell('Billers', `<section class="page-head"><h2>Billers</h2><p>Browse available billers by category.</p></section>${billerNav(req)}<section class="panel">${filterForm}</section>${list}`, req));
+  } catch (e) { next(e); }
+});
+app.get('/dashboard/bills/pay', requireCustomer, async (req,res,next) => {
+  try {
+    const accounts = (await q('SELECT * FROM accounts WHERE user_id=$1', [req.user.id])).rows;
+    let biller = null, savedBiller = null;
+    if (req.query.savedBillerId) { savedBiller = await one('SELECT * FROM saved_billers WHERE id=$1 AND user_id=$2', [req.query.savedBillerId, req.user.id]); if (savedBiller) biller = await getBillerOr404(savedBiller.biller_id); }
+    else if (req.query.billerId) { biller = await getBillerOr404(req.query.billerId); }
+    if (!biller) return res.status(404).send(customerShell('Biller not found', `<section class="panel state error"><h1>Biller not found</h1><p>Please choose a biller from the directory.</p><a class="btn" href="${withAccess(req,'/dashboard/bills/billers')}">Browse Billers</a></section>`, req));
+    const accountOptions = accounts.map(a=>`<option value="${a.id}">${esc(a.type)} — ${esc(a.currency)} (${money(a.balance)})</option>`).join('');
+    res.send(customerShell(`Pay ${biller.name}`, `<section class="page-head"><h2>Pay ${esc(biller.name)}</h2><p>${esc(biller.description||'')}</p></section>${billerNav(req)}<section class="panel"><form class="inline" method="post" action="${withAccess(req,'/dashboard/bills/confirm')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<input type="hidden" name="billerId" value="${esc(biller.id)}">${savedBiller?`<input type="hidden" name="savedBillerId" value="${esc(savedBiller.id)}">`:''}<label>Pay From<select name="accountId">${accountOptions}</select></label><label>${esc(biller.reference_label)}<input name="referenceNumber" value="${esc(savedBiller?.reference_number||'')}" required maxlength="60"></label><label>Amount<input name="amount" type="number" step="0.01" min="0.01" required></label><label>Description (optional)<input name="description" maxlength="140"></label>${savedBiller?'':'<label class="check"><input type="checkbox" name="saveBiller" value="yes"> Save this biller for next time</label>'}<button class="btn">Review Payment</button></form></section>`, req));
+  } catch (e) { next(e); }
+});
+const billPaySchema = z.object({ accountId:z.string().uuid(), billerId:z.string().uuid(), savedBillerId:z.string().uuid().optional(), referenceNumber:z.string().min(3).max(60), amount:z.coerce.number().positive().max(1000000), description:z.string().max(140).optional(), saveBiller:z.string().optional(), idempotency_key:z.string().uuid().optional(), confirm:z.string().optional() });
+app.post('/dashboard/bills/confirm', requireCustomer, rateLimit({ windowMs:15*60*1000, max:20, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = billPaySchema.parse(req.body);
+    const account = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [p.accountId, req.user.id]);
+    if (!account) return res.status(404).send('Account not found');
+    if (account.status !== 'active') return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Account unavailable</h1><p>This account cannot be used for payments right now.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    const biller = await getBillerOr404(p.billerId);
+    if (!biller) return res.status(404).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Biller not found</h1><p>Please choose a biller from the directory.</p><a class="btn" href="${withAccess(req,'/dashboard/bills/billers')}">Browse Billers</a></section>`, req));
+    if (!(await serviceEnabled('payments'))) return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Service unavailable</h1><p>Bill payments are temporarily unavailable. Please try again later.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    if (num(account.balance) < p.amount) return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Insufficient balance</h1><p>Your ${esc(account.currency)} account does not have enough available balance for this payment.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    const idk = uid();
+    res.send(customerShell('Review Payment', `<h1>Review Payment</h1><section class="panel"><h2>Confirm before paying</h2><div class="metric-grid"><article><span>Biller</span><b>${esc(biller.name)}</b><p>${esc(biller.category)}</p></article><article><span>Amount</span><b>${money(p.amount)}</b><p>${esc(account.currency)}</p></article><article><span>Pay From</span><b>${esc(account.type)}</b><p>•••• ${esc(String(account.account_no||'').slice(-4))}</p></article></div><p><b>${esc(biller.reference_label)}:</b> ${esc(p.referenceNumber)}</p>${p.description?`<p><b>Description:</b> ${esc(p.description)}</p>`:''}<p class="notice">No money has been moved yet. Review the details above before confirming.</p><form method="post" action="${withAccess(req,'/dashboard/bills/submit')}"><input type="hidden" name="_csrf" value="${req.user.csrf_token}">${hiddenAccess(req)}<input type="hidden" name="accountId" value="${esc(p.accountId)}"><input type="hidden" name="billerId" value="${esc(p.billerId)}">${p.savedBillerId?`<input type="hidden" name="savedBillerId" value="${esc(p.savedBillerId)}">`:''}<input type="hidden" name="referenceNumber" value="${esc(p.referenceNumber)}"><input type="hidden" name="amount" value="${esc(p.amount)}">${p.description?`<input type="hidden" name="description" value="${esc(p.description)}">`:''}${p.saveBiller==='yes'?`<input type="hidden" name="saveBiller" value="yes">`:''}<input type="hidden" name="idempotency_key" value="${idk}"><label>Transaction PIN<input name="pin" type="password" inputmode="numeric" maxlength="4" placeholder="4-digit PIN" required autocomplete="off"></label><label class="check"><input type="checkbox" name="confirm" value="YES" required> I confirm this bill payment</label><button class="btn">Confirm Payment</button></form></section>`, req));
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    next(e);
+  }
+});
+app.post('/dashboard/bills/submit', requireCustomer, rateLimit({ windowMs:15*60*1000, max:30, standardHeaders:true, legacyHeaders:false }), async (req,res,next) => {
+  try {
+    const p = billPaySchema.parse(req.body);
+    if (req.body.confirm !== 'YES') return res.status(400).send('Confirmation required');
+    const idk = String(req.body.idempotency_key || uid());
+    const dup = await one('SELECT id FROM bill_payments WHERE idempotency_key=$1', [idk]);
+    if (dup) return res.redirect(withAccess(req, `/dashboard/bills/${dup.id}`));
+    const pinResult = await verifyTransactionPin(req, req.body.pin);
+    if (!pinResult.ok) return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(pinResult.message)}</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    const account = await one('SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [p.accountId, req.user.id]);
+    if (!account) return res.status(404).send('Account not found');
+    if (account.status !== 'active') return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Account unavailable</h1><p>This account cannot be used for payments right now.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    const biller = await getBillerOr404(p.billerId);
+    if (!biller) return res.status(404).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Biller not found</h1><p>Please choose a biller from the directory.</p><a class="btn" href="${withAccess(req,'/dashboard/bills/billers')}">Browse Billers</a></section>`, req));
+    if (!(await serviceEnabled('payments'))) return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Service unavailable</h1><p>Bill payments are temporarily unavailable. Please try again later.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    if (num(account.balance) < p.amount) return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Insufficient balance</h1><p>Your ${esc(account.currency)} account does not have enough available balance for this payment.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    const controls = await getUserControls(req.user.id);
+    if (controls.account_status === 'blocked') return res.status(400).send(customerShell('Pay Bills', '<section class="panel state error"><h1>Account restricted</h1><p>Your account is currently restricted. Please contact support.</p></section>', req));
+    let savedBillerId = p.savedBillerId || null;
+    const paymentId = uid(), txId = uid();
+    await exec('BEGIN');
+    if (p.saveBiller === 'yes' && !savedBillerId) { savedBillerId = uid(); await q('INSERT INTO saved_billers (id,user_id,biller_id,nickname,reference_number,created_at) VALUES ($1,$2,$3,$4,$5,$6)', [savedBillerId, req.user.id, biller.id, null, p.referenceNumber, nowIso()]); }
+    await q('UPDATE accounts SET balance=balance-$1 WHERE id=$2', [p.amount, account.id]);
+    await q('INSERT INTO transactions (id,account_id,kind,description,amount,currency,created_at,status,reference,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [txId, account.id, 'Bill Payment', `Payment to ${biller.name}`, -p.amount, account.currency, nowIso(), 'completed', idk, 'BILL_PAYMENT']);
+    await q('INSERT INTO bill_payments (id,user_id,account_id,biller_id,saved_biller_id,reference_number,amount,currency,description,status,idempotency_key,transaction_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)', [paymentId, req.user.id, account.id, biller.id, savedBillerId, p.referenceNumber, p.amount, account.currency, p.description||null, 'COMPLETED', idk, txId, nowIso(), nowIso()]);
+    await exec('COMMIT');
+    await audit(req, 'BILL_PAYMENT_CREATED', 'bill_payment', paymentId, { biller: biller.name, amount:p.amount, currency:account.currency });
+    if (req.user.login_alerts_enabled !== 'no') await q('INSERT INTO notifications VALUES ($1,$2,$3,$4,$5,$6)', [uid(), req.user.id, 'Bill payment completed', `Your payment of ${money(p.amount)} to ${biller.name} was completed.`, 'unread', nowIso()]);
+    res.redirect(withAccess(req, `/dashboard/bills/${paymentId}`));
+  } catch (e) {
+    try { await exec('ROLLBACK'); } catch { /* ignore */ }
+    if (e instanceof z.ZodError) return res.status(400).send(customerShell('Pay Bills', `<section class="panel state error"><h1>Please check the form</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back</a></section>`, req));
+    next(e);
+  }
+});
+app.get('/dashboard/bills/history', requireCustomer, async (req,res,next) => {
+  try {
+    const rows = (await q('SELECT bp.*, b.name biller_name FROM bill_payments bp JOIN billers b ON b.id=bp.biller_id WHERE bp.user_id=$1 ORDER BY bp.created_at DESC LIMIT 100', [req.user.id])).rows;
+    const list = rows.length ? `<table><tr><th>Biller</th><th>Reference</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr>${rows.map(r=>`<tr><td>${esc(r.biller_name)}</td><td>${esc(r.reference_number)}</td><td>${money(r.amount)}</td><td><span class="status ${esc(String(r.status).toLowerCase())}">${esc(r.status)}</span></td><td>${fmt(r.created_at)}</td><td><a class="btn small ghost" href="${withAccess(req,`/dashboard/bills/${r.id}`)}">View</a></td></tr>`).join('')}</table>` : '<section class="panel empty-pro"><h3>No bill payments yet</h3><p>Your completed bill payments will appear here.</p></section>';
+    res.send(customerShell('Payment History', `<section class="page-head"><h2>Bill Payment History</h2></section>${billerNav(req)}<section class="panel">${list}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/dashboard/bills/:id', requireCustomer, async (req,res,next) => {
+  try {
+    const payment = await one('SELECT bp.*, b.name biller_name, b.category, b.reference_label, a.type account_type, a.account_no FROM bill_payments bp JOIN billers b ON b.id=bp.biller_id JOIN accounts a ON a.id=bp.account_id WHERE bp.id=$1 AND bp.user_id=$2', [req.params.id, req.user.id]);
+    if (!payment) return res.status(404).send(customerShell('Payment not found', `<section class="panel state error"><h1>Payment not found</h1><p>We couldn't find that bill payment.</p><a class="btn" href="${withAccess(req,'/dashboard/bills')}">Back to Bills</a></section>`, req));
+    const content = `<section class="page-head"><h2>Bill Payment Receipt</h2><p>Reference ${esc(payment.id).slice(0,8).toUpperCase()}</p></section><section class="panel receipt" id="statementPanel"><div class="statement-letterhead"><div class="statement-brand">${logo()}<span>VESPERA BANK</span></div><div class="statement-meta"><b>Payment Receipt</b><span>${fmt(payment.created_at)}</span></div></div><div class="info-grid"><p><b>Biller</b><span>${esc(payment.biller_name)}</span></p><p><b>Category</b><span>${esc(payment.category)}</span></p><p><b>${esc(payment.reference_label)}</b><span>${esc(payment.reference_number)}</span></p><p><b>Amount</b><span>${money(payment.amount)} ${esc(payment.currency)}</span></p><p><b>Paid From</b><span>${esc(payment.account_type)} •••• ${esc(String(payment.account_no||'').slice(-4))}</span></p><p><b>Status</b><span>${esc(payment.status)}</span></p>${payment.description?`<p><b>Description</b><span>${esc(payment.description)}</span></p>`:''}${payment.failure_reason?`<p><b>Reason</b><span>${esc(payment.failure_reason)}</span></p>`:''}</div><div class="quick-actions receipt-actions"><button type="button" class="btn secondary" id="printReceiptBtn" data-print-title="BillPayment_${esc(payment.biller_name).replace(/\s+/g,'')}_${esc(payment.id).slice(0,8)}">Print / Save as PDF</button><a class="btn ghost" href="${withAccess(req,'/dashboard/bills')}">Back to Bills</a></div></section>`;
+    res.send(customerShell('Payment Receipt', content, req));
+  } catch (e) { next(e); }
+});
+const savedBillerEditSchema = z.object({ nickname:z.string().max(60).optional(), referenceNumber:z.string().min(3).max(60) });
+app.post('/dashboard/bills/saved/:id/edit', requireCustomer, async (req,res,next) => {
+  try {
+    const saved = await one('SELECT * FROM saved_billers WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!saved) return res.status(404).send('Not found');
+    const p = savedBillerEditSchema.parse(req.body);
+    await q('UPDATE saved_billers SET nickname=$1, reference_number=$2 WHERE id=$3', [p.nickname||null, p.referenceNumber, saved.id]);
+    await audit(req, 'SAVED_BILLER_UPDATED', 'saved_biller', saved.id, {});
+    res.redirect(withAccess(req, '/dashboard/bills'));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send('Invalid input'); next(e); }
+});
+app.post('/dashboard/bills/saved/:id/delete', requireCustomer, async (req,res,next) => {
+  try {
+    const saved = await one('SELECT * FROM saved_billers WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    if (!saved) return res.status(404).send('Not found');
+    await q('DELETE FROM saved_billers WHERE id=$1', [saved.id]);
+    await audit(req, 'SAVED_BILLER_REMOVED', 'saved_biller', saved.id, {});
+    res.redirect(withAccess(req, '/dashboard/bills'));
+  } catch (e) { next(e); }
+});
+// ==================== end Bill Payments ====================
 app.get('/dashboard/grants', requireCustomer, async (req,res) => {
   const applications = (await q('SELECT * FROM grant_applications WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id])).rows;
   const pending = applications.filter(g=>g.status==='pending');
@@ -2359,7 +2560,7 @@ app.post('/admin/login', async (req,res) => {
   res.redirect(withAdminAccess({ admin:{ session_id:sid } }, next));
 });
 app.post('/admin/logout', requireAdmin, async (req,res) => { await audit(req, 'admin.logout', 'admin_session', req.signedCookies.admin_sid, {}); await q('DELETE FROM admin_sessions WHERE id=$1', [req.signedCookies.admin_sid || req.body._admin_access]); res.clearCookie('admin_sid', clearCookieOptions(req)); res.redirect('/admin/login'); });
-function adminShell(title, inner, req) { const links = [['Overview','/admin/dashboard','admin.access'],['Search','/admin/search','admin.access'],['Users','/admin/users','users.view'],['KYC','/admin/kyc','kyc.view'],['Accounts','/admin/accounts','users.view'],['Transactions','/admin/transactions','transactions.view'],['Transaction History','/admin/transaction-generator','transactions.correct'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],['Withdrawals','/admin/withdrawals','transfers.view'],['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],['Live Support','/admin/live-support','support.view'],['Support Tickets','/admin/support-tickets','support.view'],['AI Assistant','/admin/ai-assistant','ai.manage'],['Security','/admin/security','security.manage'],['Audit Logs','/admin/audit-logs','audit.view'],['Admin Users','/admin/admin-users','admin_users.manage'],['Settings','/admin/settings','admin.manage']]; const visible = links.filter(([,,perm]) => req.admin.permissions.includes(perm)); return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><p class="small-copy">${esc(req.admin.name)} · ${esc(req.admin.role)}</p>${visible.map(([n,u])=>`<a href="${withAdminAccess(req,u)}">${n}</a>`).join('')}<form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>Logout</button></form></aside><main class="app-main">${inner}</main></section><script src="/assets/app.js"></script></body></html>`; }
+function adminShell(title, inner, req) { const links = [['Overview','/admin/dashboard','admin.access'],['Search','/admin/search','admin.access'],['Users','/admin/users','users.view'],['KYC','/admin/kyc','kyc.view'],['Accounts','/admin/accounts','users.view'],['Transactions','/admin/transactions','transactions.view'],['Transaction History','/admin/transaction-generator','transactions.correct'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],['Withdrawals','/admin/withdrawals','transfers.view'],['Bill Payments','/admin/bill-payments','bills.view'],['Billers','/admin/billers','bills.view'],['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],['Live Support','/admin/live-support','support.view'],['Support Tickets','/admin/support-tickets','support.view'],['AI Assistant','/admin/ai-assistant','ai.manage'],['Security','/admin/security','security.manage'],['Audit Logs','/admin/audit-logs','audit.view'],['Admin Users','/admin/admin-users','admin_users.manage'],['Settings','/admin/settings','admin.manage']]; const visible = links.filter(([,,perm]) => req.admin.permissions.includes(perm)); return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><p class="small-copy">${esc(req.admin.name)} · ${esc(req.admin.role)}</p><div class="admin-side-links">${visible.map(([n,u])=>`<a href="${withAdminAccess(req,u)}">${n}</a>`).join('')}</div><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>Logout</button></form></aside><main class="app-main">${inner}</main></section><script src="/assets/app.js"></script></body></html>`; }
 function miniBars(values) {
   const max = Math.max(...values.map(v=>Number(v.value)||0), 1);
   return `<div class="chart mini-chart">${values.map(v=>`<span title="${esc(v.label)}: ${v.value}" style="height:${Math.max(8, (Number(v.value)||0)/max*100)}%"></span>`).join('')}</div>`;
@@ -2687,6 +2888,7 @@ app.post('/admin/transactions/:id/reverse', requireAdmin, requireAdminPerm('tran
     await q('UPDATE transactions SET reversed_by_id=$1 WHERE id=$2', [reversalId, t.id]);
     await q('INSERT INTO transaction_events VALUES ($1,$2,$3,$4,$5,$6,$7)', [uid(), t.id, req.admin.id, 'Reversed', body.reason, JSON.stringify({ reversal_id:reversalId }), nowIso()]);
     await exec('COMMIT');
+    if (t.source === 'BILL_PAYMENT') await q("UPDATE bill_payments SET status='REVERSED', failure_reason=$1, updated_at=$2 WHERE transaction_id=$3", [body.reason, nowIso(), t.id]);
     await audit(req, 'TRANSACTION_REVERSED', 'transaction', t.id, { reversal_id:reversalId, reason:body.reason, amount:fromCents(reversalCents) }, { targetUserId:account.user_id, targetAccountId:account.id, targetTransactionId:reversalId, amount:fromCents(reversalCents), currency:t.currency });
     res.redirect(withAdminAccess(req, '/admin/transactions/'+t.id));
   } catch (e) { try { await exec('ROLLBACK'); } catch { /* ignore */ } if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
@@ -3281,6 +3483,53 @@ app.post('/admin/transfers/:id/notifications/resend', requireAdmin, requireAdmin
     const result = body.kind === 'receipt' ? await sendReceiptEmail(full, req.admin.id) : await notifyTransferEvent(full, full.status, req.admin.id);
     await audit(req, result.sent ? 'TRANSFER_NOTIFICATION_RESENT' : 'TRANSFER_NOTIFICATION_RESEND_FAILED', 'transfer', full.id, { kind:body.kind }, { targetUserId:full.user_id });
     res.redirect(withAdminAccess(req,'/admin/transfers/'+full.id));
+  } catch (e) { next(e); }
+});
+app.get('/admin/bill-payments', requireAdmin, requireAdminPerm('bills.view'), async (req,res,next)=>{
+  try {
+    const status = String(req.query.status||''); const category = String(req.query.category||''); const params=[]; let where='';
+    if (status) { params.push(status); where += (where?' AND ':'WHERE ')+`bp.status=$${params.length}`; }
+    if (category && BILLER_CATEGORIES.includes(category)) { params.push(category); where += (where?' AND ':'WHERE ')+`b.category=$${params.length}`; }
+    const rows = (await q(`SELECT bp.*, b.name biller_name, b.category, u.name user_name, u.email user_email FROM bill_payments bp JOIN billers b ON b.id=bp.biller_id JOIN users u ON u.id=bp.user_id ${where} ORDER BY bp.created_at DESC LIMIT 200`, params)).rows;
+    const list = rows.length ? `<table><tr><th>User</th><th>Biller</th><th>Category</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr>${rows.map(r=>`<tr><td>${esc(r.user_name)}<br><small>${esc(r.user_email)}</small></td><td>${esc(r.biller_name)}</td><td>${esc(r.category)}</td><td>${money(r.amount)} ${esc(r.currency)}</td><td><span class="status ${esc(String(r.status).toLowerCase())}">${esc(r.status)}</span></td><td>${fmt(r.created_at)}</td><td><a class="btn small" href="${withAdminAccess(req,'/admin/bill-payments/'+r.id)}">View</a></td></tr>`).join('')}</table>` : '<p class="empty">No bill payments match these filters.</p>';
+    const filterForm = `<form class="inline"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><select name="status"><option value="">All statuses</option>${['PENDING','COMPLETED','FAILED','CANCELLED','REVERSED'].map(x=>`<option ${status===x?'selected':''}>${x}</option>`).join('')}</select><select name="category"><option value="">All categories</option>${BILLER_CATEGORIES.map(c=>`<option ${category===c?'selected':''}>${esc(c)}</option>`).join('')}</select><button class="btn">Filter</button></form>`;
+    res.send(adminShell('Bill Payments', `<h1>Bill Payments</h1><section class="panel">${filterForm}</section><section class="panel">${list}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/admin/bill-payments/:id', requireAdmin, requireAdminPerm('bills.view'), async (req,res,next)=>{
+  try {
+    const p = await one('SELECT bp.*, b.name biller_name, b.category, b.reference_label, u.name user_name, u.email user_email, a.type account_type, a.account_no FROM bill_payments bp JOIN billers b ON b.id=bp.biller_id JOIN users u ON u.id=bp.user_id JOIN accounts a ON a.id=bp.account_id WHERE bp.id=$1', [req.params.id]);
+    if (!p) return res.status(404).send('Not found');
+    const canManage = req.admin.permissions.includes('transactions.reverse');
+    res.send(adminShell('Bill Payment Detail', `<h1>Bill Payment ${esc(p.id).slice(0,8)}</h1><div class="metric-grid"><article><span>User</span><b>${esc(p.user_name)}</b><p>${esc(p.user_email)}</p></article><article><span>Biller</span><b>${esc(p.biller_name)}</b><p>${esc(p.category)}</p></article><article><span>Amount</span><b>${money(p.amount)}</b><p>${esc(p.currency)}</p></article><article><span>Status</span><b>${esc(p.status)}</b><p>${fmt(p.created_at)}</p></article></div><section class="panel"><h2>Details</h2><div class="info-grid"><p><b>Paid From</b><span>${esc(p.account_type)} · ${esc(p.account_no)}</span></p><p><b>${esc(p.reference_label)}</b><span>${esc(p.reference_number)}</span></p>${p.description?`<p><b>Description</b><span>${esc(p.description)}</span></p>`:''}${p.failure_reason?`<p><b>Failure/Reversal Reason</b><span>${esc(p.failure_reason)}</span></p>`:''}</div>${p.transaction_id?`<p><a class="btn small" href="${withAdminAccess(req,'/admin/transactions/'+p.transaction_id)}">View Underlying Transaction${canManage && p.status==='COMPLETED'?' / Reverse':''}</a></p>`:''}</section>`, req));
+  } catch (e) { next(e); }
+});
+app.get('/admin/billers', requireAdmin, requireAdminPerm('bills.view'), async (req,res,next)=>{
+  try {
+    const rows = (await q('SELECT * FROM billers ORDER BY category, name')).rows;
+    const canManage = req.admin.permissions.includes('bills.manage');
+    const list = `<table><tr><th>Name</th><th>Category</th><th>Reference Label</th><th>Status</th>${canManage?'<th></th>':''}</tr>${rows.map(b=>`<tr><td>${esc(b.name)}</td><td>${esc(b.category)}</td><td>${esc(b.reference_label)}</td><td><span class="status ${b.status==='active'?'completed':'disabled'}">${esc(b.status)}</span></td>${canManage?`<td><form class="inline" method="post" action="${withAdminAccess(req,'/admin/billers/'+b.id+'/toggle')}"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button class="btn small ghost">${b.status==='active'?'Disable':'Enable'}</button></form></td>`:''}</tr>`).join('')}</table>`;
+    const addForm = canManage ? `<section class="panel"><h2>Add Biller</h2><form class="inline" method="post" action="${withAdminAccess(req,'/admin/billers')}"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<label>Name<input name="name" required maxlength="120"></label><label>Category<select name="category">${BILLER_CATEGORIES.map(c=>`<option>${esc(c)}</option>`).join('')}</select></label><label>Description<input name="description" maxlength="240"></label><label>Reference Label<input name="reference_label" value="Account / Reference Number" maxlength="60"></label><button class="btn">Add Biller</button></form></section>` : '';
+    res.send(adminShell('Billers', `<h1>Billers</h1><section class="panel">${list}</section>${addForm}`, req));
+  } catch (e) { next(e); }
+});
+app.post('/admin/billers', requireAdmin, requireAdminPerm('bills.manage'), async (req,res,next)=>{
+  try {
+    const p = z.object({ name:z.string().min(2).max(120), category:z.enum(BILLER_CATEGORIES), description:z.string().max(240).optional(), reference_label:z.string().min(2).max(60) }).parse(req.body);
+    const id = uid();
+    await q('INSERT INTO billers (id,name,category,description,reference_label,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, p.name, p.category, p.description||null, p.reference_label, 'active', nowIso()]);
+    await audit(req, 'BILLER_CREATED', 'biller', id, { name:p.name, category:p.category });
+    res.redirect(withAdminAccess(req, '/admin/billers'));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send('Invalid input'); next(e); }
+});
+app.post('/admin/billers/:id/toggle', requireAdmin, requireAdminPerm('bills.manage'), async (req,res,next)=>{
+  try {
+    const b = await one('SELECT * FROM billers WHERE id=$1', [req.params.id]);
+    if (!b) return res.status(404).send('Not found');
+    const next_status = b.status === 'active' ? 'inactive' : 'active';
+    await q('UPDATE billers SET status=$1 WHERE id=$2', [next_status, b.id]);
+    await audit(req, 'BILLER_STATUS_CHANGED', 'biller', b.id, { previous:b.status, new:next_status });
+    res.redirect(withAdminAccess(req, '/admin/billers'));
   } catch (e) { next(e); }
 });
 app.get('/admin/notifications', requireAdmin, requireAdminPerm('admin.access'), async (req,res)=>{ const rows=(await q('SELECT n.*, u.email FROM notifications n JOIN users u ON u.id=n.user_id ORDER BY n.created_at DESC LIMIT 100')).rows; res.send(adminShell('Notifications', `<h1>Notifications</h1><section class="panel">${rows.map(n=>`<p class="notice"><b>${esc(n.title)}</b> · ${esc(n.email)}<br>${esc(cleanCopy(n.body).replace('Starting balance:', 'Current balance:'))} · ${fmt(n.created_at)}</p>`).join('')||'<p class="empty">No notifications.</p>'}</section>`, req)); });
