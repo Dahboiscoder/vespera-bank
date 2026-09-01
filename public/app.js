@@ -55,6 +55,14 @@ const setAdminMenu = open => {
 };
 adminMenuToggle?.addEventListener('click', () => setAdminMenu(!document.body.classList.contains('admin-menu-open')));
 adminNavBackdrop?.addEventListener('click', () => setAdminMenu(false));
+document.querySelectorAll('#adminSidebar .admin-side-links a').forEach(link => {
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    const destination = link.href;
+    setAdminMenu(false);
+    window.location.assign(destination);
+  });
+});
 
 document.addEventListener('click', e => {
   if (!e.target.closest('.nav-group') && !e.target.closest('.menu')) document.querySelectorAll('.nav-group').forEach(g => g.classList.remove('active'));
