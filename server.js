@@ -3158,23 +3158,23 @@ function adminNavIcon(name) {
 }
 function adminShell(title, inner, req) {
   const primary = [
-    ['Dashboard','/admin/dashboard','admin.access'],['Users','/admin/users','users.view'],['Accounts','/admin/accounts','users.view'],
-    ['Transactions','/admin/transactions','transactions.view'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],
-    ['Withdrawals','/admin/withdrawals','transfers.view'],['KYC','/admin/kyc','kyc.view'],['Bill Payments','/admin/bill-payments','bills.view'],
-    ['Scheduled Payments','/admin/scheduled-bill-payments','bills.view'],['Reports','/admin/reports','reports.view'],['Settings','/admin/settings','admin.manage'],
-    ['Audit Logs','/admin/audit-logs','audit.view'],['Support','/admin/live-support','support.view']
-  ];
-  const secondary = [
-    ['My Account','/admin/account','admin.access'],['Admin Search','/admin/search','admin.access'],['Transaction History','/admin/transaction-generator','transactions.correct'],
-    ['Approvals','/admin/approvals','transactions.approve'],['Billers','/admin/billers','bills.view'],['Vendor Payments','/admin/vendor-payments','business.view'],
-    ['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],['Support Tickets','/admin/support-tickets','support.view'],
-    ['AI Assistant','/admin/ai-assistant','ai.manage'],['Security','/admin/security','security.manage'],['Admin Users','/admin/admin-users','admin_users.manage']
+    ['Dashboard','/admin/dashboard','admin.access'],['My Account','/admin/account','admin.access'],['Admin Search','/admin/search','admin.access'],
+    ['Users','/admin/users','users.view'],['KYC','/admin/kyc','kyc.view'],['Accounts','/admin/accounts','users.view'],['Balance Control','/admin/balances','balances.view'],
+    ['Transactions','/admin/transactions','transactions.view'],['Transaction History','/admin/transaction-generator','transactions.correct'],
+    ['Approvals','/admin/approvals','transactions.approve'],['Transfers','/admin/transfers','transfers.view'],['Deposits','/admin/deposits','transfers.view'],
+    ['Withdrawals','/admin/withdrawals','transfers.view'],['Bill Payments','/admin/bill-payments','bills.view'],
+    ['Scheduled Bill Payments','/admin/scheduled-bill-payments','bills.view'],['Billers','/admin/billers','bills.view'],
+    ['Vendor Payments','/admin/vendor-payments','business.view'],['Scheduled Vendor Payments','/admin/scheduled-vendor-payments','business.view'],
+    ['Cards','/admin/cards','cards.view'],['Grants','/admin/grants','grants.view'],['Loans','/admin/loans','loans.view'],
+    ['Live Support','/admin/live-support','support.view'],['Support Tickets','/admin/support-tickets','support.view'],
+    ['AI Assistant','/admin/ai-assistant','ai.manage'],['Notifications','/admin/notifications','admin.access'],['Exchange Rates','/admin/exchange-rates','rates.view'],
+    ['Services & Limits','/admin/services','services.view'],['Fees','/admin/fees','fees.view'],['Security','/admin/security','security.manage'],['Audit Logs','/admin/audit-logs','audit.view'],
+    ['Admin Users','/admin/admin-users','admin_users.manage'],['Reports','/admin/reports','reports.view'],['Settings','/admin/settings','admin.manage']
   ];
   const current = req.path;
   const navLink = ([name,url]) => `<a class="${current===url?'active':''}" href="${withAdminAccess(req,url)}">${adminNavIcon(name)}<span>${name}</span></a>`;
   const visiblePrimary = primary.filter(([,,perm]) => req.admin.permissions.includes(perm));
-  const visibleSecondary = secondary.filter(([,,perm]) => req.admin.permissions.includes(perm));
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#68111c"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><div class="admin-identity"><span class="admin-avatar">${esc(avatar(req.admin.name))}</span><div><b>${esc(req.admin.name)}</b><small><i></i>${esc(req.admin.role)}</small></div></div><nav class="admin-side-links" aria-label="Admin navigation">${visiblePrimary.map(navLink).join('')}<details class="admin-more"><summary>${adminNavIcon('More')}<span>More</span></summary><div>${visibleSecondary.map(navLink).join('')}</div></details></nav><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>${adminNavIcon('Withdrawals')}<span>Logout</span></button></form></aside><div class="admin-workspace"><header class="admin-header"><h1>${esc(title.replace('Admin ',''))}</h1><form class="admin-global-search" action="/admin/search"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><span aria-hidden="true">⌕</span><input name="q" placeholder="Search anything…" aria-label="Search admin records"></form><a class="admin-bell" href="${withAdminAccess(req,'/admin/notifications')}" aria-label="Notifications">♧<sup>2</sup></a><a class="admin-header-avatar" href="${withAdminAccess(req,'/admin/account')}" aria-label="My account">${esc(avatar(req.admin.name))}</a></header><main class="app-main">${inner}</main></div></section><script src="/assets/app.js"></script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#68111c"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><div class="admin-identity"><span class="admin-avatar">${esc(avatar(req.admin.name))}</span><div><b>${esc(req.admin.name)}</b><small><i></i>${esc(req.admin.role)}</small></div></div><nav class="admin-side-links" aria-label="Admin navigation">${visiblePrimary.map(navLink).join('')}</nav><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>${adminNavIcon('Withdrawals')}<span>Logout</span></button></form></aside><div class="admin-workspace"><header class="admin-header"><h1>${esc(title.replace('Admin ',''))}</h1><form class="admin-global-search" action="/admin/search"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><span aria-hidden="true">⌕</span><input name="q" placeholder="Search anything…" aria-label="Search admin records"></form><a class="admin-bell" href="${withAdminAccess(req,'/admin/notifications')}" aria-label="Notifications">♧<sup>2</sup></a><a class="admin-header-avatar" href="${withAdminAccess(req,'/admin/account')}" aria-label="My account">${esc(avatar(req.admin.name))}</a></header><main class="app-main">${inner}</main></div></section><script src="/assets/app.js"></script></body></html>`;
 }
 function miniBars(values) {
   const max = Math.max(...values.map(v=>Number(v.value)||0), 1);
