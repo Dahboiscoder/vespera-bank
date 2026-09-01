@@ -657,8 +657,8 @@ body.admin-app .admin-side>.brand .mark svg{width:24px;height:24px;fill:#fff}
 .admin-identity small i{width:8px;height:8px;border-radius:50%;background:#37ca72}
 body.admin-app .admin-side-links{display:flex;flex-direction:column;gap:2px;padding:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
 body.admin-app .admin-side-links>a,body.admin-app .admin-more a,body.admin-app .admin-more summary,body.admin-app .admin-side>form button{display:flex;align-items:center;gap:14px;width:100%;min-height:47px;margin:0;padding:11px 16px;border:0;border-radius:10px;background:transparent;color:rgba(255,255,255,.9);font-size:14px;font-weight:540;text-align:left;box-shadow:none;cursor:pointer}
-body.admin-app .admin-side-links>a{position:relative;z-index:2;pointer-events:auto;touch-action:manipulation}
-body.admin-app .admin-side-links>a:hover,body.admin-app .admin-more a:hover,body.admin-app .admin-more summary:hover,body.admin-app .admin-side>form button:hover,body.admin-app .admin-side-links>a.active{background:rgba(230,91,111,.24);color:#fff;transform:none}
+.admin-nav-form{display:block!important;margin:0!important;padding:0!important;border:0!important}.admin-nav-form button{position:relative;z-index:2;pointer-events:auto;touch-action:manipulation}
+body.admin-app .admin-side-links>a:hover,body.admin-app .admin-more a:hover,body.admin-app .admin-more summary:hover,body.admin-app .admin-side form button:hover,body.admin-app .admin-nav-form button.active{background:rgba(230,91,111,.24);color:#fff;transform:none}
 .admin-nav-icon{flex:none;width:22px;height:22px;display:grid;place-items:center;font-size:20px;line-height:1;font-weight:400}
 .admin-more{margin:0}.admin-more summary{list-style:none}.admin-more summary::-webkit-details-marker{display:none}.admin-more summary:after{content:'⌄';margin-left:auto}.admin-more[open] summary:after{transform:rotate(180deg)}.admin-more>div{padding:2px 0 4px 14px}.admin-more a{min-height:39px;font-size:12px}
 body.admin-app .admin-side>form{padding-top:15px;margin-top:16px;border-top:1px solid rgba(255,255,255,.18)}
