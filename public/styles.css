@@ -648,6 +648,7 @@ body.admin-login .mark svg{fill:var(--primary)}
 body.admin-app{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7f8fa;color:#121418}
 body.admin-app .admin-shell{display:grid;grid-template-columns:300px minmax(0,1fr);min-height:100vh;background:#f7f8fa}
 body.admin-app .admin-side{position:sticky;top:0;height:100vh;padding:26px 16px 20px;background:radial-gradient(circle at 15% 28%,rgba(177,49,68,.26),transparent 28%),linear-gradient(155deg,#68111c 0%,#7b1725 48%,#64101a 100%);color:#fff;box-shadow:none;overflow:hidden}
+@media(min-width:761px){body.admin-app .admin-side{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.32) transparent}body.admin-app .admin-side::-webkit-scrollbar{width:6px}body.admin-app .admin-side::-webkit-scrollbar-track{background:transparent}body.admin-app .admin-side::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:999px}}
 body.admin-app .admin-side>.brand{height:48px;padding:0 8px;margin:0 0 31px;color:#fff;font-size:19px;letter-spacing:.02em}
 body.admin-app .admin-side>.brand .mark{width:34px;height:34px;border-radius:9px;background:transparent;border:3px solid #fff}
 body.admin-app .admin-side>.brand .mark svg{width:24px;height:24px;fill:#fff}
