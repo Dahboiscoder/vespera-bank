@@ -83,7 +83,7 @@ document.querySelectorAll('.toggle-password').forEach(btn => btn.addEventListene
   input.type = input.type === 'password' ? 'text' : 'password';
 }));
 
-document.querySelectorAll('form:not(#chatForm):not(.admin-nav-form)').forEach(f=>f.addEventListener('submit',()=>{const b=f.querySelector('button[type="submit"],button:not([type])'); if(b && !b.classList.contains('nav-trigger') && !b.classList.contains('menu')){b.dataset.old=b.textContent; b.textContent='Processing…'; b.disabled=true;}}));
+document.querySelectorAll('form:not(#chatForm)').forEach(f=>f.addEventListener('submit',()=>{const b=f.querySelector('button[type="submit"],button:not([type])'); if(b && !b.classList.contains('nav-trigger') && !b.classList.contains('menu')){b.dataset.old=b.textContent; b.textContent='Processing…'; b.disabled=true;}}));
 
 fetch('/api/rates').then(r=>r.json()).then(d=>{const el=document.getElementById('homeRate'); const x=d.rates?.find(r=>r.base_currency==='USD'&&r.quote_currency==='RWF'); if(el&&x) el.textContent=`Buy ${Number(x.buy_rate).toLocaleString()} · Sell ${Number(x.sell_rate).toLocaleString()}`}).catch(()=>{});
 

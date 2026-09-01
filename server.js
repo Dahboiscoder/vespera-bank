@@ -435,7 +435,7 @@ async function getCustomer(req) {
   return user;
 }
 async function getAdmin(req) {
-  const sid = req.signedCookies.admin_sid || req.query.admin_access || req.body?._admin_access;
+  const sid = req.query.admin_access || req.body?._admin_access || req.signedCookies.admin_sid;
   if (!sid || !/^[0-9a-f-]{36}$/i.test(String(sid))) return null;
   const sess = await one('SELECT * FROM admin_sessions WHERE id=$1 AND expires_at>$2', [sid, nowIso()]);
   if (!sess) return null;
@@ -3172,7 +3172,7 @@ function adminShell(title, inner, req) {
     ['Admin Users','/admin/admin-users','admin_users.manage'],['Reports','/admin/reports','reports.view'],['Settings','/admin/settings','admin.manage']
   ];
   const current = req.path;
-  const navLink = ([name,url]) => `<form class="admin-nav-form" method="get" action="${url}"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><button type="submit" class="${current===url?'active':''}">${adminNavIcon(name)}<span>${name}</span></button></form>`;
+  const navLink = ([name,url]) => `<a class="${current===url?'active':''}" href="${withAdminAccess(req,url)}">${adminNavIcon(name)}<span>${name}</span></a>`;
   const visiblePrimary = primary.filter(([,,perm]) => req.admin.permissions.includes(perm));
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#68111c"><title>${esc(title)} | Admin</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-app"><section class="admin-shell"><aside class="side admin-side" id="adminSidebar"><a class="brand" href="${withAdminAccess(req,'/admin/dashboard')}">${logo()}</a><div class="admin-identity"><span class="admin-avatar">${esc(avatar(req.admin.name))}</span><div><b>${esc(req.admin.name)}</b><small><i></i>${esc(req.admin.role)}</small></div></div><nav class="admin-side-links" aria-label="Admin navigation">${visiblePrimary.map(navLink).join('')}</nav><form method="post" action="/admin/logout"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<button>${adminNavIcon('Withdrawals')}<span>Logout</span></button></form></aside><button type="button" class="admin-nav-backdrop" id="adminNavBackdrop" aria-label="Close navigation"></button><div class="admin-workspace"><header class="admin-header"><button type="button" class="admin-menu-toggle" id="adminMenuToggle" aria-label="Open admin navigation" aria-expanded="false" aria-controls="adminSidebar"><span>V</span></button><h1>${esc(title.replace('Admin ',''))}</h1><form class="admin-global-search" action="/admin/search"><input type="hidden" name="admin_access" value="${esc(req.admin.session_id)}"><span aria-hidden="true">⌕</span><input name="q" placeholder="Search anything…" aria-label="Search admin records"></form><a class="admin-bell" href="${withAdminAccess(req,'/admin/notifications')}" aria-label="Notifications">♧<sup>2</sup></a><a class="admin-header-avatar" href="${withAdminAccess(req,'/admin/account')}" aria-label="My account">${esc(avatar(req.admin.name))}</a></header><main class="app-main">${inner}</main></div></section><script src="/assets/app.js"></script></body></html>`;
 }
