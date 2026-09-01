@@ -84,7 +84,9 @@ const rolePermissions = {
   SUPPORT_ADMIN: ['admin.access','users.view','users.edit','users.suspend','kyc.view','kyc.manage','cards.view','cards.manage','grants.view','loans.view','support.view','support.manage','transactions.view','balances.view','bills.view','business.view'],
   VIEWER: adminPerms.filter(p => p.endsWith('.view') || p.endsWith('.read') || p === 'admin.access')
 };
-function isSecureRequest(_req) { return true; }
+function isSecureRequest(req) {
+  return Boolean(req.secure || String(req.get('x-forwarded-proto') || '').split(',')[0].trim() === 'https');
+}
 function sessionCookieOptions(req, maxAge) { const secure = isSecureRequest(req); return { signed:true, httpOnly:true, sameSite: secure ? 'none' : 'lax', secure, maxAge, path:'/' }; }
 function clearCookieOptions(req) { const secure = isSecureRequest(req); return { signed:true, httpOnly:true, sameSite: secure ? 'none' : 'lax', secure, path:'/' }; }
 function noticeCookieOptions(req, maxAge) { const secure = isSecureRequest(req); return { httpOnly:true, sameSite: secure ? 'none' : 'lax', secure, maxAge, path:'/' }; }
@@ -466,7 +468,22 @@ function requireCustomer(req,res,next) {
 function requireAdmin(req,res,next) { noStore(res); if (!req.admin) return res.redirect('/admin/login?next=' + encodeURIComponent(req.originalUrl)); next(); }
 function requireAdminPerm(perm) { return (req,res,next) => req.admin?.permissions?.includes(perm) ? next() : res.status(403).send(publicPage('Access denied', '<section class="panel state error"><h1>Access denied</h1><p>Your administrator role is not authorized for this action.</p></section>', req)); }
 app.use('/dashboard/kyc', (req,res,next) => kycUploadMiddleware(req,res,next));
-app.use((req,res,next) => { if (req.method === 'GET' || req.path === '/api/chat' || req.path === '/support/chat' || req.path === '/support/mode' || req.path === '/support/handoff') return next(); const actor = req.originalUrl.startsWith('/admin') ? req.admin : req.user; if (actor && req.body._csrf !== actor.csrf_token) return res.status(403).send('CSRF validation failed'); next(); });
+const csrfExemptPostPaths = new Set([
+  '/login',
+  '/register',
+  '/admin/login',
+  '/admin/forgot-password',
+  '/api/chat',
+  '/support/chat',
+  '/support/mode',
+  '/support/handoff'
+]);
+app.use((req,res,next) => {
+  if (req.method === 'GET' || csrfExemptPostPaths.has(req.path) || req.path.startsWith('/admin/reset-password/')) return next();
+  const actor = req.originalUrl.startsWith('/admin') ? req.admin : req.user;
+  if (actor && req.body._csrf !== actor.csrf_token) return res.status(403).send('CSRF validation failed');
+  next();
+});
 async function audit(req, action, entityType, entityId, details, meta = {}) {
   await q('INSERT INTO audit_logs (id,actor_user_id,action,entity_type,entity_id,details,ip,created_at,admin_user_id,target_user_id,target_account_id,target_transaction_id,amount,currency,user_agent) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)', [
     uid(), req.user?.id || null, action, entityType, entityId || null,
