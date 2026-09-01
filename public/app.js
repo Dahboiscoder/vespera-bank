@@ -55,7 +55,6 @@ const setAdminMenu = open => {
 };
 adminMenuToggle?.addEventListener('click', () => setAdminMenu(!document.body.classList.contains('admin-menu-open')));
 adminNavBackdrop?.addEventListener('click', () => setAdminMenu(false));
-document.querySelectorAll('#adminSidebar a').forEach(link => link.addEventListener('click', () => setAdminMenu(false)));
 
 document.addEventListener('click', e => {
   if (!e.target.closest('.nav-group') && !e.target.closest('.menu')) document.querySelectorAll('.nav-group').forEach(g => g.classList.remove('active'));
