@@ -283,3 +283,9 @@ if (shareReceiptBtn && navigator.share) {
   }
   processNextChunk();
 })();
+document.querySelectorAll('.admin-back').forEach(link => link.addEventListener('click', event => {
+  if (document.referrer && new URL(document.referrer).origin === window.location.origin && history.length > 1) {
+    event.preventDefault();
+    history.back();
+  }
+}));
