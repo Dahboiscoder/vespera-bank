@@ -47,6 +47,16 @@ document.querySelectorAll('.nav-trigger').forEach(trigger => {
   });
 });
 
+const adminMenuToggle = document.getElementById('adminMenuToggle');
+const adminNavBackdrop = document.getElementById('adminNavBackdrop');
+const setAdminMenu = open => {
+  document.body.classList.toggle('admin-menu-open', open);
+  adminMenuToggle?.setAttribute('aria-expanded', String(open));
+};
+adminMenuToggle?.addEventListener('click', () => setAdminMenu(!document.body.classList.contains('admin-menu-open')));
+adminNavBackdrop?.addEventListener('click', () => setAdminMenu(false));
+document.querySelectorAll('#adminSidebar a').forEach(link => link.addEventListener('click', () => setAdminMenu(false)));
+
 document.addEventListener('click', e => {
   if (!e.target.closest('.nav-group') && !e.target.closest('.menu')) document.querySelectorAll('.nav-group').forEach(g => g.classList.remove('active'));
   if (!e.target.closest('.customer-mobile-drawer') && !e.target.closest('.customer-menu-button') && !e.target.closest('.customer-menu-details') && !e.target.closest('#bankMobileNav') && !e.target.closest('.bank-mobile-menu')) {
