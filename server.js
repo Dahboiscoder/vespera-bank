@@ -3356,6 +3356,12 @@ app.post('/admin/kyc/:userId/action', requireAdmin, requireAdminPerm('kyc.manage
   } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
 
+app.get('/admin/balances/:id', requireAdmin, requireAdminPerm('balances.read'), async (req,res) => {
+  const account = await one('SELECT user_id FROM accounts WHERE id=$1', [req.params.id]);
+  const userId = account?.user_id || (await one('SELECT id FROM users WHERE id=$1', [req.params.id]))?.id;
+  if (!userId) return res.status(404).send('Not found');
+  res.redirect(withAdminAccess(req, '/admin/balances?user=' + userId));
+});
 app.get('/admin/balances', requireAdmin, requireAdminPerm('balances.read'), async (req,res) => {
   const term = String(req.query.q || ''); const selected = req.query.user;
   const rows = (await q(`SELECT u.id, u.name, u.email, u.status, a.id account_id, a.account_no, a.balance FROM users u JOIN accounts a ON a.user_id=u.id WHERE lower(u.name) LIKE lower($1) OR lower(u.email) LIKE lower($1) ORDER BY u.name LIMIT 100`, [`%${term}%`])).rows;
