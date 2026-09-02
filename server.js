@@ -436,7 +436,8 @@ async function getCustomer(req) {
   return user;
 }
 async function getAdmin(req) {
-  const sid = req.query.admin_access || req.body?._admin_access || req.signedCookies.admin_sid;
+  const bodyAccess = Array.isArray(req.body?._admin_access) ? req.body._admin_access[0] : req.body?._admin_access;
+  const sid = req.query.admin_access || bodyAccess || req.signedCookies.admin_sid;
   if (!sid || !/^[0-9a-f-]{36}$/i.test(String(sid))) return null;
   const sess = await one('SELECT * FROM admin_sessions WHERE id=$1 AND expires_at>$2', [sid, nowIso()]);
   if (!sess) return null;
@@ -3380,7 +3381,7 @@ app.post('/admin/balances/:accountId/adjust/preview', requireAdmin, requireAdmin
     const nextCents = toCents(account.balance) + signedCents;
     if (nextCents < 0) return res.status(400).send(adminShell('Invalid balance adjustment', '<section class="panel state error"><h1>Invalid adjustment</h1><p>Removing that amount would make the balance negative.</p></section>', req));
     const idk = uid();
-    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','admin_access'].includes(k)).map(([k,v])=>`<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
+    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','_admin_access','admin_access'].includes(k)).map(([k,v]) => Array.isArray(v) ? v.map(vv=>`<input type="hidden" name="${esc(k)}" value="${esc(String(vv))}">`).join('') : `<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
     res.send(adminShell('Confirm Balance Adjustment', `<h1>Confirm Balance Adjustment</h1><section class="panel"><h2>Review before applying</h2><div class="metric-grid"><article><span>User</span><b>${esc(account.user_name)}</b><p>${esc(account.user_email)}</p></article><article><span>Current Balance</span><b>${money(account.balance)}</b></article><article><span>Adjustment</span><b>${p.action==='ADMIN CREDIT'?'+':'-'}${money(p.amount)}</b><p>${esc(account.currency)}</p></article><article><span>New Balance</span><b>${money(fromCents(nextCents))}</b></article><article><span>Transaction Date</span><b>${esc(p.transactionDate||todayDateStr())}</b></article></div><p><b>Reason:</b> ${esc(p.reason)}</p><p><b>Admin performing this action:</b> ${esc(req.admin.name)} (${esc(req.admin.email)})</p><form method="post" action="/admin/balances/${account.id}/adjust"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}${hidden}<input type="hidden" name="idempotency_key" value="${idk}"><label class="check"><input type="checkbox" name="confirm" value="YES" required> I confirm this balance change is correct</label><button class="btn">Apply Adjustment</button></form></section>`, req));
   } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
@@ -3453,7 +3454,7 @@ app.post('/admin/transactions/preview', requireAdmin, requireAdminPerm('transact
     const previewCents = toCents(account.balance) + (isCredit ? toCents(p.amount) : -toCents(p.amount));
     const willApply = p.status === 'completed';
     const idk = uid();
-    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','admin_access'].includes(k)).map(([k,v])=>`<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
+    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','_admin_access','admin_access'].includes(k)).map(([k,v]) => Array.isArray(v) ? v.map(vv=>`<input type="hidden" name="${esc(k)}" value="${esc(String(vv))}">`).join('') : `<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
     res.send(adminShell('Confirm Transaction', `<h1>Confirm Transaction</h1><section class="panel"><h2>Review before creating</h2><div class="metric-grid"><article><span>User</span><b>${esc(account.user_name)}</b><p>${esc(account.user_email)}</p></article><article><span>Current Balance</span><b>${money(account.balance)}</b></article><article><span>Amount</span><b>${isCredit?'+':'-'}${money(p.amount)}</b><p>${esc(account.currency)}</p></article><article><span>Resulting Balance</span><b>${willApply?money(fromCents(previewCents)):money(account.balance)+' (unchanged — status not completed)'}</b></article></div><p><b>Type:</b> ${esc(p.kind)} · <b>Status:</b> ${esc(p.status||'pending')} · <b>Source:</b> ADMIN_CREATED</p><p><b>Description:</b> ${esc(p.description)}</p><p><b>Admin performing this action:</b> ${esc(req.admin.name)} (${esc(req.admin.email)})</p><form method="post" action="/admin/transactions"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}${hidden}<input type="hidden" name="idempotency_key" value="${idk}"><label class="check"><input type="checkbox" name="confirm" value="YES" required> I confirm this transaction is accurate and should be created</label><button class="btn">Create Transaction</button></form></section>`, req));
   } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
