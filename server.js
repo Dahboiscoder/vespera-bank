@@ -21,6 +21,7 @@ const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
 const GOOGLE_OAUTH_PROMPT = process.env.GOOGLE_OAUTH_PROMPT || 'select_account';
 const APP_URL = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Vespera Bank <notifications@vesperabank.test>';
+const SUPPORT_ALERT_EMAIL = process.env.SUPPORT_ALERT_EMAIL || ADMIN_EMAIL;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-flash-lite-latest';
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
@@ -1209,8 +1210,13 @@ const emailService = {
   async sendTransactionNotification(transfer, event) { const subj = notificationSubject(transfer, event); return this.send({ to: transfer.user_email, subject: subj, html: emailLayout({ heading: subj.replace(/^Vespera Bank — /,'').split(' (')[0], bodyHtml: transferSummaryBlock(transfer, event) }) }); },
   async sendTransactionReceipt(transfer) { return this.send({ to: transfer.user_email, subject: `Your Vespera Bank receipt — ${transfer.reference || String(transfer.id).slice(0,8).toUpperCase()}`, html: emailLayout({ heading:'Transaction Receipt', bodyHtml: receiptSectionHtml(transfer) }) }); },
   async sendEmailVerification(email, token) { return this.send({ to:email, subject:'Verify your Vespera Bank email address', html: emailLayout({ heading:'Verify your email', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Please confirm this email address is yours.</p><p style="text-align:center;margin:0 0 20px;"><a href="${APP_URL}/verify-email/${token}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Verify email address</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 24 hours. If you didn't create a Vespera Bank account, you can ignore this email.</p>` }) }); },
-  async sendPasswordReset(email, resetUrl, { admin=false } = {}) { return this.send({ to:email, subject:`Reset your Vespera Bank ${admin?'administrator ':''}password`, html: emailLayout({ heading:'Reset your password', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset the password for your Vespera Bank ${admin?'administrator ':''}account.</p><p style="text-align:center;margin:0 0 20px;"><a href="${resetUrl}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Reset password</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password will not be changed.</p>` }) }); }
+  async sendPasswordReset(email, resetUrl, { admin=false } = {}) { return this.send({ to:email, subject:`Reset your Vespera Bank ${admin?'administrator ':''}password`, html: emailLayout({ heading:'Reset your password', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset the password for your Vespera Bank ${admin?'administrator ':''}account.</p><p style="text-align:center;margin:0 0 20px;"><a href="${resetUrl}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Reset password</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password will not be changed.</p>` }) }); },
+  async sendHandoffAlert(convo, user, reason) { return this.send({ to: SUPPORT_ALERT_EMAIL, subject: `Live support needed — ${user.name}`, html: emailLayout({ heading:'A customer needs a human agent', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">${esc(user.name)} (${esc(user.email)}) ${reason ? `was escalated by the AI assistant: “${esc(reason)}”` : 'requested a human agent'} in a live support conversation.</p><p style="text-align:center;margin:0;"><a href="${APP_URL}/admin/live-support/${convo.id}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">View Conversation</a></p>` }) }); }
 };
+function notifyHandoffRequested(convo, user, reason) {
+  if (convo.status === 'waiting') return;
+  emailService.sendHandoffAlert(convo, user, reason).catch(()=>{});
+}
 function smsConfigured() { return Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER); }
 let twilioClient = null;
 function getTwilioClient() { if (!twilioClient) twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN); return twilioClient; }
@@ -2907,23 +2913,24 @@ async function runSupportAI(req, historyMessages, userMessage, settings) {
   const system = buildSupportSystemPrompt(settings);
   let contents = [...historyMessages, { role:'user', parts:[{ text: userMessage }] }];
   let handoff = false;
+  let handoffReason = '';
   for (let round = 0; round < 4; round++) {
     const resp = await callGemini(system, contents, SUPPORT_TOOLS);
     const parts = resp.candidates?.[0]?.content?.parts || [];
     const functionCalls = parts.filter(p => p.functionCall);
     const text = parts.filter(p => p.text).map(p => p.text).join('\n').trim();
-    if (!functionCalls.length) return { reply: text || "I'm here to help — could you tell me a bit more about what you need?", handoff };
+    if (!functionCalls.length) return { reply: text || "I'm here to help — could you tell me a bit more about what you need?", handoff, handoffReason };
     contents.push({ role:'model', parts });
     const responseParts = [];
     for (const fc of functionCalls) {
       const call = fc.functionCall;
-      if (call.name === 'request_human_handoff') handoff = true;
+      if (call.name === 'request_human_handoff') { handoff = true; handoffReason = String(call.args?.reason || '').slice(0,240); }
       let result; try { result = await executeSupportTool(req, call.name, call.args); } catch { result = { error: 'Tool failed' }; }
       responseParts.push({ functionResponse: { name: call.name, id: call.id, response: result } });
     }
     contents.push({ role:'user', parts: responseParts });
   }
-  return { reply: "I'll connect you with a support specialist who can help.", handoff: true };
+  return { reply: "I'll connect you with a support specialist who can help.", handoff: true, handoffReason };
 }
 function buildPublicAssistantPrompt() {
   return [
@@ -3004,6 +3011,7 @@ app.post('/support/handoff', requireCustomer, rateLimit({ windowMs:60*1000, max:
     const convo = await getOrCreateOpenConversation(req.user.id);
     const mode = convo.mode === 'human' ? 'human' : 'ai_human';
     if (!convo.assigned_agent_id) {
+      notifyHandoffRequested(convo, req.user, null);
       await q("UPDATE support_conversations SET mode=$1, status='waiting', updated_at=$2 WHERE id=$3", [mode, nowIso(), convo.id]);
       await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at) VALUES ($1,$2,$3,$4,$5)', [uid(), convo.id, 'system', "You're now in the support queue. A support specialist will join this conversation.", nowIso()]);
       await audit(req, 'SUPPORT_HANDOFF_REQUESTED', 'support_conversation', convo.id, {});
@@ -3031,14 +3039,14 @@ app.post('/support/chat', requireCustomer, rateLimit({ windowMs: 60*1000, max: 2
     req.supportConversationId = convo.id;
     await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at,sender_id) VALUES ($1,$2,$3,$4,$5,$6)', [uid(), convo.id, 'user', safe, nowIso(), req.user.id]);
 
-    let reply = null, escalation = false;
+    let reply = null, escalation = false, escalationReason = '';
     if (convo.mode !== 'human') {
       if (aiConfigured()) {
         try {
           const priorRows = (await q('SELECT * FROM support_messages WHERE conversation_id=$1 ORDER BY created_at ASC LIMIT 20', [convo.id])).rows;
           const history = priorRows.slice(0, -1).filter(m => m.sender !== 'system').map(m => ({ role: supportMessageRole(m.sender), parts: [{ text: supportMessageContentForAI(m) }] }));
           const result = await runSupportAI(req, history, safe, settings);
-          reply = result.reply; escalation = result.handoff;
+          reply = result.reply; escalation = result.handoff; escalationReason = result.handoffReason || '';
         } catch (e) {
           console.error('[support-ai]', e.message);
           const accounts=(await q('SELECT type,currency,balance,status FROM accounts WHERE user_id=$1',[req.user.id])).rows;
@@ -3056,6 +3064,7 @@ app.post('/support/chat', requireCustomer, rateLimit({ windowMs: 60*1000, max: 2
 
     if (reply) await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at,sender_id) VALUES ($1,$2,$3,$4,$5,$6)', [uid(), convo.id, 'ai', reply, nowIso(), null]);
     if (escalation && convo.mode === 'ai' && !convo.assigned_agent_id) {
+      notifyHandoffRequested(convo, req.user, escalationReason);
       await q("UPDATE support_conversations SET mode='ai_human', status='waiting' WHERE id=$1", [convo.id]);
       await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at) VALUES ($1,$2,$3,$4,$5)', [uid(), convo.id, 'system', "You're now in the support queue. A support specialist will join this conversation.", nowIso()]);
     }
