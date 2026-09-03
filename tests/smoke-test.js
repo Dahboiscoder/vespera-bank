@@ -3,8 +3,11 @@ import { registerAndActivate } from './_test-helpers.js';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 async function text(path, opts={}) { const r=await fetch(base+path, opts); return { r, t:await r.text() }; }
-for (const p of ['/', '/personal', '/business', '/accounts', '/savings', '/cards', '/loans', '/transfers', '/fx', '/security', '/about', '/contact', '/help', '/login', '/register']) {
+for (const p of ['/', '/personal', '/business', '/accounts', '/savings', '/cards', '/loans', '/transfers', '/wallet', '/investments', '/fx', '/security', '/about', '/contact', '/news', '/help', '/search', '/privacy', '/terms', '/simulation-disclosure', '/login', '/register']) {
   const {r,t}=await text(p); assert.equal(r.status, 200, p); assert.ok(t.includes('Vespera Bank') || t.includes('VESPERA BANK'), p);
+  assert.ok(t.includes('<meta name="description"'), `${p} missing meta description`);
+  assert.ok(t.includes('rel="canonical"'), `${p} missing canonical tag`);
+  assert.ok(t.includes('rel="icon"'), `${p} missing favicon link`);
 }
 const fxPage = await text('/fx?from=USD&to=JPY&amount=100');
 assert.ok(fxPage.t.includes('JPY'));
