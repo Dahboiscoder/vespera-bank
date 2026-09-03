@@ -1,5 +1,17 @@
 const body = document.body;
 
+// Google Analytics (gtag.js) — only initializes when the server rendered a
+// measurement ID onto <body data-ga-id>, i.e. GA_MEASUREMENT_ID is set.
+// gtag.js itself loads async from a <script> tag in <head>; queuing commands
+// into dataLayer here works regardless of load order.
+const gaId = body.getAttribute('data-ga-id');
+if (gaId) {
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function gtag() { window.dataLayer.push(arguments); };
+  window.gtag('js', new Date());
+  window.gtag('config', gaId);
+}
+
 // Some browsers (notably Safari) restore an authenticated page from the
 // back/forward cache after logout despite Cache-Control: no-store, showing a
 // stale customer menu whose links no longer have a valid session. Force a

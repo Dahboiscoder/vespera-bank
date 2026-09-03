@@ -108,3 +108,7 @@ Google Cloud Console setup:
 5. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the server environment.
 
 If credentials are missing, `/auth/google` fails safely by returning the user to sign-in with a configuration notice. It never creates a customer session or signs in an unverified Google account.
+
+## Google Analytics (optional)
+
+Set `GA_MEASUREMENT_ID` (e.g. `G-XXXXXXXXXX`) to enable Google Analytics on the public marketing site (homepage, pricing, about, help, etc.). When unset, no analytics script is loaded and the Content-Security-Policy stays restricted to same-origin scripts. When set, the CSP is automatically relaxed just enough to allow `googletagmanager.com`/`google-analytics.com`, and `gtag.js` loads from the server-rendered measurement ID — the ID is not a secret and does not require server-side proxying.

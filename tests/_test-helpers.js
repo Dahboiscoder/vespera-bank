@@ -1,7 +1,11 @@
+import 'dotenv/config';
 const form = o => new URLSearchParams(o);
 
 async function adminLogin(base) {
-  const r = await fetch(base + '/admin/login', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ email: 'admin@novacapital.test', password: 'Admin#2026!' }), redirect: 'manual' });
+  const email = process.env.TEST_ADMIN_EMAIL;
+  const password = process.env.TEST_ADMIN_PASSWORD;
+  if (!email || !password) throw new Error('adminLogin: set TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD in your .env before running tests that need admin approval (e.g. registerAndActivate)');
+  const r = await fetch(base + '/admin/login', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ email, password }), redirect: 'manual' });
   const cookieMatch = (r.headers.get('set-cookie') || '').match(/admin_sid=([^;]+)/);
   const access = (r.headers.get('location') || '').split('admin_access=')[1];
   if (!cookieMatch || !access) throw new Error('adminLogin failed: ' + r.status);
