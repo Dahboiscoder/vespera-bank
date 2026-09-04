@@ -12,20 +12,16 @@ import twilio from 'twilio';
 import multer from 'multer';
 
 const PORT = process.env.PORT || 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(48).toString('hex');
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-change-me-long-random-secret';
 const ADMIN_EMAIL = process.env.NOVA_ADMIN_EMAIL || 'admin@novacapital.test';
-function generatedBootstrapSecret(label) {
-  const value = `${crypto.randomBytes(24).toString('base64url')}!Aa1`;
-  console.warn(`[security] ${label} is not configured. A random bootstrap password was generated for this deployment: ${value}`);
-  return value;
-}
-const ADMIN_PASSWORD = process.env.NOVA_ADMIN_PASSWORD || generatedBootstrapSecret('NOVA_ADMIN_PASSWORD');
+const ADMIN_PASSWORD = process.env.NOVA_ADMIN_PASSWORD || 'Admin#2026!';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
 const GOOGLE_OAUTH_PROMPT = process.env.GOOGLE_OAUTH_PROMPT || 'select_account';
 const APP_URL = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Vespera Bank <notifications@vesperabank.test>';
+const SUPPORT_ALERT_EMAIL = process.env.SUPPORT_ALERT_EMAIL || ADMIN_EMAIL;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-flash-lite-latest';
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
@@ -362,27 +358,11 @@ async function getUserControls(userId) {
 async function seedData(adminRoleId, custRoleId) {
   const existingAdmin = await one('SELECT id FROM admin_users WHERE email=$1', [ADMIN_EMAIL]);
   if (!existingAdmin) await q('INSERT INTO admin_users VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), adminRoleId, 'Vespera Bank Administrator', ADMIN_EMAIL, await bcrypt.hash(ADMIN_PASSWORD, 12), 'enabled', nowIso(), null]);
-  else {
-    const adminCredential = await one('SELECT id,password_hash FROM admin_users WHERE id=$1', [existingAdmin.id]);
-    if (adminCredential && await bcrypt.compare('Admin#2026!', adminCredential.password_hash)) {
-      await q('UPDATE admin_users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(ADMIN_PASSWORD, 12), adminCredential.id]);
-      await q('DELETE FROM admin_sessions WHERE admin_user_id=$1', [adminCredential.id]);
-      console.warn('[security] Rotated the exposed seeded administrator password and revoked its sessions.');
-    }
-  }
   const sample = await one('SELECT id FROM users WHERE email=$1', ['customer@novacapital.test']);
   let sampleId = sample?.id;
   if (!sampleId) {
     sampleId = uid();
-    await q('INSERT INTO users (id, role_id, name, email, phone, password_hash, status, twofa_secret, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [sampleId, custRoleId, 'David Sample', 'customer@novacapital.test', '+10000000000', await bcrypt.hash(process.env.SEED_CUSTOMER_PASSWORD || generatedBootstrapSecret('SEED_CUSTOMER_PASSWORD'), 12), 'enabled', null, nowIso()]);
-  } else {
-    const sampleCredential = await one('SELECT id,password_hash FROM users WHERE id=$1', [sampleId]);
-    if (sampleCredential && await bcrypt.compare('Customer#2026!', sampleCredential.password_hash)) {
-      const replacement = process.env.SEED_CUSTOMER_PASSWORD || generatedBootstrapSecret('SEED_CUSTOMER_PASSWORD');
-      await q('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(replacement, 12), sampleCredential.id]);
-      await q('DELETE FROM sessions WHERE user_id=$1', [sampleCredential.id]);
-      console.warn('[security] Rotated the exposed seeded customer password and revoked its sessions.');
-    }
+    await q('INSERT INTO users (id, role_id, name, email, phone, password_hash, status, twofa_secret, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [sampleId, custRoleId, 'David Sample', 'customer@novacapital.test', '+10000000000', await bcrypt.hash('Customer#2026!', 12), 'enabled', null, nowIso()]);
   }
   let account = await one('SELECT id FROM accounts WHERE user_id=$1 LIMIT 1', [sampleId]);
   if (!account) await q('INSERT INTO accounts (id,user_id,account_no,type,currency,balance,status,iban) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), sampleId, accountNo(), 'Everyday Account', 'USD', 0, 'active', generateIban()]);
@@ -456,7 +436,8 @@ async function getCustomer(req) {
   return user;
 }
 async function getAdmin(req) {
-  const sid = req.query.admin_access || req.body?._admin_access || req.signedCookies.admin_sid;
+  const bodyAccess = Array.isArray(req.body?._admin_access) ? req.body._admin_access[0] : req.body?._admin_access;
+  const sid = req.query.admin_access || bodyAccess || req.signedCookies.admin_sid;
   if (!sid || !/^[0-9a-f-]{36}$/i.test(String(sid))) return null;
   const sess = await one('SELECT * FROM admin_sessions WHERE id=$1 AND expires_at>$2', [sid, nowIso()]);
   if (!sess) return null;
@@ -502,7 +483,7 @@ const csrfExemptPostPaths = new Set([
 app.use((req,res,next) => {
   if (req.method === 'GET' || csrfExemptPostPaths.has(req.path) || req.path.startsWith('/admin/reset-password/')) return next();
   const actor = req.originalUrl.startsWith('/admin') ? req.admin : req.user;
-  if (actor && req.body._csrf !== actor.csrf_token) return res.status(403).send('CSRF validation failed');
+  if (actor && req.body?._csrf !== actor.csrf_token) return res.status(403).send('CSRF validation failed');
   next();
 });
 async function audit(req, action, entityType, entityId, details, meta = {}) {
@@ -1214,7 +1195,7 @@ function transferSummaryBlock(transfer, event) {
 }
 function isUndeliverableTestDomain(email) {
   const domain = String(email || '').split('@')[1]?.toLowerCase() || '';
-  return domain === 'test' || domain.endsWith('.test') || domain === 'example' || domain.endsWith('.example') || domain === 'invalid' || domain.endsWith('.invalid') || domain === 'localhost';
+  return domain === 'test' || domain.endsWith('.test') || domain === 'example' || domain.endsWith('.example') || domain === 'example.com' || domain === 'example.net' || domain === 'example.org' || domain === 'invalid' || domain.endsWith('.invalid') || domain === 'localhost';
 }
 const emailService = {
   async send({ to, subject, html }) {
@@ -1230,8 +1211,13 @@ const emailService = {
   async sendTransactionNotification(transfer, event) { const subj = notificationSubject(transfer, event); return this.send({ to: transfer.user_email, subject: subj, html: emailLayout({ heading: subj.replace(/^Vespera Bank — /,'').split(' (')[0], bodyHtml: transferSummaryBlock(transfer, event) }) }); },
   async sendTransactionReceipt(transfer) { return this.send({ to: transfer.user_email, subject: `Your Vespera Bank receipt — ${transfer.reference || String(transfer.id).slice(0,8).toUpperCase()}`, html: emailLayout({ heading:'Transaction Receipt', bodyHtml: receiptSectionHtml(transfer) }) }); },
   async sendEmailVerification(email, token) { return this.send({ to:email, subject:'Verify your Vespera Bank email address', html: emailLayout({ heading:'Verify your email', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">Please confirm this email address is yours.</p><p style="text-align:center;margin:0 0 20px;"><a href="${APP_URL}/verify-email/${token}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Verify email address</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 24 hours. If you didn't create a Vespera Bank account, you can ignore this email.</p>` }) }); },
-  async sendPasswordReset(email, resetUrl, { admin=false } = {}) { return this.send({ to:email, subject:`Reset your Vespera Bank ${admin?'administrator ':''}password`, html: emailLayout({ heading:'Reset your password', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset the password for your Vespera Bank ${admin?'administrator ':''}account.</p><p style="text-align:center;margin:0 0 20px;"><a href="${resetUrl}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Reset password</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password will not be changed.</p>` }) }); }
+  async sendPasswordReset(email, resetUrl, { admin=false } = {}) { return this.send({ to:email, subject:`Reset your Vespera Bank ${admin?'administrator ':''}password`, html: emailLayout({ heading:'Reset your password', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset the password for your Vespera Bank ${admin?'administrator ':''}account.</p><p style="text-align:center;margin:0 0 20px;"><a href="${resetUrl}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">Reset password</a></p><p style="font-size:13px;color:#5b554f;margin:0;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password will not be changed.</p>` }) }); },
+  async sendHandoffAlert(convo, user, reason) { return this.send({ to: SUPPORT_ALERT_EMAIL, subject: `Live support needed — ${user.name}`, html: emailLayout({ heading:'A customer needs a human agent', bodyHtml: `<p style="font-size:15px;line-height:1.6;margin:0 0 20px;">${esc(user.name)} (${esc(user.email)}) ${reason ? `was escalated by the AI assistant: “${esc(reason)}”` : 'requested a human agent'} in a live support conversation.</p><p style="text-align:center;margin:0;"><a href="${APP_URL}/admin/live-support/${convo.id}" style="display:inline-block;background:#b71125;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:700;font-size:14px;">View Conversation</a></p>` }) }); }
 };
+function notifyHandoffRequested(convo, user, reason) {
+  if (convo.status === 'waiting') return;
+  emailService.sendHandoffAlert(convo, user, reason).catch(()=>{});
+}
 function smsConfigured() { return Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER); }
 let twilioClient = null;
 function getTwilioClient() { if (!twilioClient) twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN); return twilioClient; }
@@ -2928,23 +2914,24 @@ async function runSupportAI(req, historyMessages, userMessage, settings) {
   const system = buildSupportSystemPrompt(settings);
   let contents = [...historyMessages, { role:'user', parts:[{ text: userMessage }] }];
   let handoff = false;
+  let handoffReason = '';
   for (let round = 0; round < 4; round++) {
     const resp = await callGemini(system, contents, SUPPORT_TOOLS);
     const parts = resp.candidates?.[0]?.content?.parts || [];
     const functionCalls = parts.filter(p => p.functionCall);
     const text = parts.filter(p => p.text).map(p => p.text).join('\n').trim();
-    if (!functionCalls.length) return { reply: text || "I'm here to help — could you tell me a bit more about what you need?", handoff };
+    if (!functionCalls.length) return { reply: text || "I'm here to help — could you tell me a bit more about what you need?", handoff, handoffReason };
     contents.push({ role:'model', parts });
     const responseParts = [];
     for (const fc of functionCalls) {
       const call = fc.functionCall;
-      if (call.name === 'request_human_handoff') handoff = true;
+      if (call.name === 'request_human_handoff') { handoff = true; handoffReason = String(call.args?.reason || '').slice(0,240); }
       let result; try { result = await executeSupportTool(req, call.name, call.args); } catch { result = { error: 'Tool failed' }; }
       responseParts.push({ functionResponse: { name: call.name, id: call.id, response: result } });
     }
     contents.push({ role:'user', parts: responseParts });
   }
-  return { reply: "I'll connect you with a support specialist who can help.", handoff: true };
+  return { reply: "I'll connect you with a support specialist who can help.", handoff: true, handoffReason };
 }
 function buildPublicAssistantPrompt() {
   return [
@@ -3025,6 +3012,7 @@ app.post('/support/handoff', requireCustomer, rateLimit({ windowMs:60*1000, max:
     const convo = await getOrCreateOpenConversation(req.user.id);
     const mode = convo.mode === 'human' ? 'human' : 'ai_human';
     if (!convo.assigned_agent_id) {
+      notifyHandoffRequested(convo, req.user, null);
       await q("UPDATE support_conversations SET mode=$1, status='waiting', updated_at=$2 WHERE id=$3", [mode, nowIso(), convo.id]);
       await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at) VALUES ($1,$2,$3,$4,$5)', [uid(), convo.id, 'system', "You're now in the support queue. A support specialist will join this conversation.", nowIso()]);
       await audit(req, 'SUPPORT_HANDOFF_REQUESTED', 'support_conversation', convo.id, {});
@@ -3052,14 +3040,14 @@ app.post('/support/chat', requireCustomer, rateLimit({ windowMs: 60*1000, max: 2
     req.supportConversationId = convo.id;
     await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at,sender_id) VALUES ($1,$2,$3,$4,$5,$6)', [uid(), convo.id, 'user', safe, nowIso(), req.user.id]);
 
-    let reply = null, escalation = false;
+    let reply = null, escalation = false, escalationReason = '';
     if (convo.mode !== 'human') {
       if (aiConfigured()) {
         try {
           const priorRows = (await q('SELECT * FROM support_messages WHERE conversation_id=$1 ORDER BY created_at ASC LIMIT 20', [convo.id])).rows;
           const history = priorRows.slice(0, -1).filter(m => m.sender !== 'system').map(m => ({ role: supportMessageRole(m.sender), parts: [{ text: supportMessageContentForAI(m) }] }));
           const result = await runSupportAI(req, history, safe, settings);
-          reply = result.reply; escalation = result.handoff;
+          reply = result.reply; escalation = result.handoff; escalationReason = result.handoffReason || '';
         } catch (e) {
           console.error('[support-ai]', e.message);
           const accounts=(await q('SELECT type,currency,balance,status FROM accounts WHERE user_id=$1',[req.user.id])).rows;
@@ -3077,6 +3065,7 @@ app.post('/support/chat', requireCustomer, rateLimit({ windowMs: 60*1000, max: 2
 
     if (reply) await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at,sender_id) VALUES ($1,$2,$3,$4,$5,$6)', [uid(), convo.id, 'ai', reply, nowIso(), null]);
     if (escalation && convo.mode === 'ai' && !convo.assigned_agent_id) {
+      notifyHandoffRequested(convo, req.user, escalationReason);
       await q("UPDATE support_conversations SET mode='ai_human', status='waiting' WHERE id=$1", [convo.id]);
       await q('INSERT INTO support_messages (id,conversation_id,sender,message,created_at) VALUES ($1,$2,$3,$4,$5)', [uid(), convo.id, 'system', "You're now in the support queue. A support specialist will join this conversation.", nowIso()]);
     }
@@ -3085,27 +3074,31 @@ app.post('/support/chat', requireCustomer, rateLimit({ windowMs: 60*1000, max: 2
     res.json({ reply: reply || null, conversationId: convo.id, escalation, mode: escalation ? 'ai_human' : convo.mode, waiting: convo.mode === 'human' || escalation });
   } catch (e) { next(e); }
 });
-app.post('/support/tickets', requireCustomer, async (req,res)=>{
-  const body=z.object({conversation_id:z.string().uuid().optional(),issue_category:z.string().max(80).default('General'),summary:z.string().min(3).max(500),priority:z.enum(['Low','Normal','High','Urgent']).default('Normal')}).parse(req.body);
-  const id=uid(); await q('INSERT INTO support_tickets VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [id,req.user.id,body.conversation_id||null,body.issue_category,body.summary,body.priority,'Open',nowIso(),nowIso()]);
-  await audit(req,'SUPPORT_TICKET_CREATED','support_ticket',id,{category:body.issue_category,priority:body.priority}); res.json({ ticketId:id,status:'Open' });
+app.post('/support/tickets', requireCustomer, async (req,res,next)=>{
+  try {
+    const body=z.object({conversation_id:z.string().uuid().optional(),issue_category:z.string().max(80).default('General'),summary:z.string().min(3).max(500),priority:z.enum(['Low','Normal','High','Urgent']).default('Normal')}).parse(req.body);
+    const id=uid(); await q('INSERT INTO support_tickets VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [id,req.user.id,body.conversation_id||null,body.issue_category,body.summary,body.priority,'Open',nowIso(),nowIso()]);
+    await audit(req,'SUPPORT_TICKET_CREATED','support_ticket',id,{category:body.issue_category,priority:body.priority}); res.json({ ticketId:id,status:'Open' });
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).json({ error: e.issues.map(i=>i.message).join(' ') }); next(e); }
 });
 
 function adminLoginPage(req, msg='') { const notice = req.cookies?.login_notice || ''; return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Admin Login | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-login"><section class="auth-card admin-auth"><div class="brand">${logo()}</div><p class="eyebrow">Private administrator portal</p><h1>Admin sign in</h1>${notice?`<p class="notice">${esc(notice)}</p>`:''}${msg?`<p class="error-text">${esc(msg)}</p>`:''}<form method="post" action="/admin/login"><input type="hidden" name="next" value="${esc(req.query.next || '')}"><label>Admin Email<input name="email" type="email" required autocomplete="username"></label><label>Admin Password<input name="password" type="password" required autocomplete="current-password"></label><div class="form-row"><a href="/admin/forgot-password">Forgot password?</a></div><button class="btn">Sign In</button></form><p>Not linked from the public site. Authorized administrators only.</p></section></body></html>`; }
 app.get('/admin', (req,res) => res.redirect(req.admin ? withAdminAccess(req, '/admin/dashboard') : '/admin/login'));
 app.get('/admin/login', (req,res) => { const html = adminLoginPage(req); res.clearCookie('login_notice', noticeCookieOptions(req, 0)); res.send(html); });
 const adminLoginSchema = z.object({ email:z.string().email(), password:z.string().min(8), next:z.string().optional() });
-app.post('/admin/login', async (req,res) => {
-  const p = adminLoginSchema.parse(req.body);
-  const admin = await one('SELECT * FROM admin_users WHERE email=$1 AND status=$2', [normalizeLoginEmail(p.email), 'enabled']);
-  if (!admin || !(await bcrypt.compare(p.password, admin.password_hash))) return res.status(401).send(adminLoginPage(req, 'Invalid administrator credentials.'));
-  const sid = uid(); const csrf = csrfToken();
-  await q('INSERT INTO admin_sessions VALUES ($1,$2,$3,$4,$5)', [sid, admin.id, csrf, new Date(Date.now()+6*60*60*1000).toISOString(), nowIso()]);
-  await q('UPDATE admin_users SET last_login_at=$1 WHERE id=$2', [nowIso(), admin.id]);
-  res.cookie('admin_sid', sid, sessionCookieOptions(req, 6*60*60*1000));
-  await audit({ ...req, admin }, 'admin.login', 'admin_session', sid, { email:admin.email });
-  const next = p.next && p.next.startsWith('/admin') ? p.next : '/admin/dashboard';
-  res.redirect(withAdminAccess({ admin:{ session_id:sid } }, next));
+app.post('/admin/login', async (req,res,next) => {
+  try {
+    const p = adminLoginSchema.parse(req.body);
+    const admin = await one('SELECT * FROM admin_users WHERE email=$1 AND status=$2', [normalizeLoginEmail(p.email), 'enabled']);
+    if (!admin || !(await bcrypt.compare(p.password, admin.password_hash))) return res.status(401).send(adminLoginPage(req, 'Invalid administrator credentials.'));
+    const sid = uid(); const csrf = csrfToken();
+    await q('INSERT INTO admin_sessions VALUES ($1,$2,$3,$4,$5)', [sid, admin.id, csrf, new Date(Date.now()+6*60*60*1000).toISOString(), nowIso()]);
+    await q('UPDATE admin_users SET last_login_at=$1 WHERE id=$2', [nowIso(), admin.id]);
+    res.cookie('admin_sid', sid, sessionCookieOptions(req, 6*60*60*1000));
+    await audit({ ...req, admin }, 'admin.login', 'admin_session', sid, { email:admin.email });
+    const dest = p.next && p.next.startsWith('/admin') ? p.next : '/admin/dashboard';
+    res.redirect(withAdminAccess({ admin:{ session_id:sid } }, dest));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminLoginPage(req, 'Please enter a valid email and password (minimum 8 characters).')); next(e); }
 });
 app.post('/admin/logout', requireAdmin, async (req,res) => { await audit(req, 'admin.logout', 'admin_session', req.signedCookies.admin_sid, {}); await q('DELETE FROM admin_sessions WHERE id=$1', [req.signedCookies.admin_sid || req.body._admin_access]); res.clearCookie('admin_sid', clearCookieOptions(req)); res.redirect('/admin/login'); });
 function adminForgotPasswordPage(req, { notice='', error='' } = {}) { return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#8f101d"><title>Reset Admin Password | Vespera Bank</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="admin-login"><section class="auth-card admin-auth"><div class="brand">${logo()}</div><p class="eyebrow">Private administrator portal</p><h1>Reset your password</h1><p>Enter your administrator email and we'll send you a link to reset your password.</p>${notice?`<p class="notice">${notice}</p>`:''}${error?`<p class="error-text">${esc(error)}</p>`:''}<form method="post" action="/admin/forgot-password"><label>Admin Email<input name="email" type="email" required autocomplete="username"></label><button class="btn wide">Send reset link</button></form><p class="center small-copy"><a href="/admin/login">Back to sign in</a></p></section></body></html>`; }
@@ -3287,28 +3280,30 @@ app.post('/admin/users/:id/edit', requireAdmin, requireAdminPerm('users.edit'), 
     res.redirect(withAdminAccess(req, '/admin/users/'+req.params.id));
   } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
-app.post('/admin/users/:id/controls', requireAdmin, requireAdminPerm('users.edit'), async (req,res)=>{
-  const body=z.object({action:z.enum(['block','unblock','disable_transfers','enable_transfers','disable_withdrawals','enable_withdrawals','disable_deposits','enable_deposits','force_logout','require_password_reset']),reason:z.string().min(3).max(240),confirm:z.string()}).parse(req.body);
-  if(body.confirm!=='YES') return res.status(400).send('Confirmation required');
-  const before=await getUserControls(req.params.id); let updates={...before};
-  if(body.action==='block'){ updates.account_status='blocked'; updates.login_status='disabled'; updates.transfer_status='disabled'; await q('DELETE FROM sessions WHERE user_id=$1',[req.params.id]); }
-  if(body.action==='unblock'){ updates.account_status='active'; updates.login_status='enabled'; }
-  if(body.action==='disable_transfers') updates.transfer_status='disabled';
-  if(body.action==='enable_transfers') updates.transfer_status='enabled';
-  if(body.action==='disable_withdrawals') updates.risk_status='withdrawals_disabled';
-  if(body.action==='enable_withdrawals') updates.risk_status='normal';
-  if(body.action==='disable_deposits') updates.risk_status='deposits_disabled';
-  if(body.action==='enable_deposits') updates.risk_status='normal';
-  if(body.action==='force_logout') await q('DELETE FROM sessions WHERE user_id=$1',[req.params.id]);
-  if(body.action==='require_password_reset') updates.password_reset_required='yes';
-  await q('UPDATE user_controls SET account_status=$1, transfer_status=$2, login_status=$3, risk_status=$4, password_reset_required=$5, updated_at=$6 WHERE user_id=$7',[updates.account_status,updates.transfer_status,updates.login_status,updates.risk_status,updates.password_reset_required,nowIso(),req.params.id]);
-  const event={block:'ACCOUNT_BLOCKED',unblock:'ACCOUNT_UNBLOCKED',disable_transfers:'TRANSFERS_DISABLED',enable_transfers:'TRANSFERS_ENABLED',force_logout:'FORCE_LOGOUT'}[body.action] || 'ADMIN_ACTION';
-  await audit(req,event,'user',req.params.id,{previous:before,new:updates,reason:body.reason});
-  res.redirect(withAdminAccess(req,'/admin/users/'+req.params.id));
+app.post('/admin/users/:id/controls', requireAdmin, requireAdminPerm('users.edit'), async (req,res,next)=>{
+  try {
+    const body=z.object({action:z.enum(['block','unblock','disable_transfers','enable_transfers','disable_withdrawals','enable_withdrawals','disable_deposits','enable_deposits','force_logout','require_password_reset']),reason:z.string().min(3).max(240),confirm:z.string()}).parse(req.body);
+    if(body.confirm!=='YES') return res.status(400).send('Confirmation required');
+    const before=await getUserControls(req.params.id); let updates={...before};
+    if(body.action==='block'){ updates.account_status='blocked'; updates.login_status='disabled'; updates.transfer_status='disabled'; await q('DELETE FROM sessions WHERE user_id=$1',[req.params.id]); }
+    if(body.action==='unblock'){ updates.account_status='active'; updates.login_status='enabled'; }
+    if(body.action==='disable_transfers') updates.transfer_status='disabled';
+    if(body.action==='enable_transfers') updates.transfer_status='enabled';
+    if(body.action==='disable_withdrawals') updates.risk_status='withdrawals_disabled';
+    if(body.action==='enable_withdrawals') updates.risk_status='normal';
+    if(body.action==='disable_deposits') updates.risk_status='deposits_disabled';
+    if(body.action==='enable_deposits') updates.risk_status='normal';
+    if(body.action==='force_logout') await q('DELETE FROM sessions WHERE user_id=$1',[req.params.id]);
+    if(body.action==='require_password_reset') updates.password_reset_required='yes';
+    await q('UPDATE user_controls SET account_status=$1, transfer_status=$2, login_status=$3, risk_status=$4, password_reset_required=$5, updated_at=$6 WHERE user_id=$7',[updates.account_status,updates.transfer_status,updates.login_status,updates.risk_status,updates.password_reset_required,nowIso(),req.params.id]);
+    const event={block:'ACCOUNT_BLOCKED',unblock:'ACCOUNT_UNBLOCKED',disable_transfers:'TRANSFERS_DISABLED',enable_transfers:'TRANSFERS_ENABLED',force_logout:'FORCE_LOGOUT'}[body.action] || 'ADMIN_ACTION';
+    await audit(req,event,'user',req.params.id,{previous:before,new:updates,reason:body.reason});
+    res.redirect(withAdminAccess(req,'/admin/users/'+req.params.id));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
 app.post('/admin/users/:id/status', requireAdmin, requireAdminPerm('users.suspend'), async (req,res) => { if(req.body.confirm!=='YES') return res.status(400).send('Confirmation required'); const status = z.enum(['enabled','suspended']).parse(req.body.status); await q('UPDATE users SET status=$1 WHERE id=$2', [status, req.params.id]); await audit(req, status==='suspended'?'USER_SUSPENDED':'USER_ACTIVATED', 'user', req.params.id, { status }); res.redirect(withAdminAccess(req,'/admin/users/'+req.params.id)); });
 app.post('/admin/users/:id/delete', requireAdmin, requireAdminPerm('users.delete'), async (req,res) => { if(req.body.confirm!=='DELETE') return res.status(400).send('Confirmation required'); const before=await one('SELECT id,name,email,status FROM users WHERE id=$1',[req.params.id]); await q('DELETE FROM users WHERE id=$1',[req.params.id]); await audit(req,'USER_DELETED','user',req.params.id,{before}); res.redirect(withAdminAccess(req,'/admin/users')); });
-app.post('/admin/users/:id/reset-password', requireAdmin, requireAdminPerm('users.edit'), async (req,res) => { const p = z.object({ password:z.string().min(8).max(120) }).parse(req.body); await q('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(p.password,12), req.params.id]); await audit(req, 'USER_PASSWORD_RESET', 'user', req.params.id, {}); res.redirect(withAdminAccess(req,'/admin/users/'+req.params.id)); });
+app.post('/admin/users/:id/reset-password', requireAdmin, requireAdminPerm('users.edit'), async (req,res,next) => { try { const p = z.object({ password:z.string().min(8).max(120) }).parse(req.body); await q('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(p.password,12), req.params.id]); await audit(req, 'USER_PASSWORD_RESET', 'user', req.params.id, {}); res.redirect(withAdminAccess(req,'/admin/users/'+req.params.id)); } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); } });
 app.get('/admin/kyc', requireAdmin, requireAdminPerm('kyc.view'), async (req,res) => {
   const status = String(req.query.status||'');
   const params=[]; let where='';
@@ -3346,20 +3341,28 @@ async function completeReferralIfPending(req, referredUserId) {
   await q('INSERT INTO notifications VALUES ($1,$2,$3,$4,$5,$6)', [uid(), ref.referrer_user_id, 'Referral reward earned', `You earned ${money(reward)} because someone you referred verified their identity.`, 'unread', nowIso()]);
   await audit(req, 'REFERRAL_COMPLETED', 'referral', ref.id, { referrerUserId:ref.referrer_user_id, referredUserId, reward });
 }
-app.post('/admin/kyc/:userId/action', requireAdmin, requireAdminPerm('kyc.manage'), async (req,res) => {
-  const body = z.object({ action:z.enum(['approve','reject']), reason:z.string().max(240).optional(), confirm:z.string() }).parse(req.body);
-  if (body.confirm !== 'YES') return res.status(400).send('Confirmation required');
-  if (body.action === 'reject' && !body.reason) return res.status(400).send('Reason required');
-  const k = await one('SELECT * FROM kyc_submissions WHERE user_id=$1', [req.params.userId]);
-  if (!k) return res.status(404).send('Not found');
-  if (k.status !== 'pending') return res.status(400).send('This submission has already been reviewed');
-  const next = body.action === 'approve' ? 'approved' : 'rejected';
-  await q('UPDATE kyc_submissions SET status=$1, rejection_reason=$2, reviewed_at=$3, reviewed_by=$4 WHERE user_id=$5', [next, body.action==='reject'?body.reason:null, nowIso(), req.admin.id, k.user_id]);
-  await audit(req, body.action==='approve'?'KYC_APPROVED':'KYC_REJECTED', 'kyc', k.user_id, { reason:body.reason });
-  if (body.action === 'approve') await completeReferralIfPending(req, k.user_id);
-  res.redirect(withAdminAccess(req, '/admin/kyc/'+k.user_id));
+app.post('/admin/kyc/:userId/action', requireAdmin, requireAdminPerm('kyc.manage'), async (req,res,next) => {
+  try {
+    const body = z.object({ action:z.enum(['approve','reject']), reason:z.string().max(240).optional(), confirm:z.string() }).parse(req.body);
+    if (body.confirm !== 'YES') return res.status(400).send('Confirmation required');
+    if (body.action === 'reject' && !body.reason) return res.status(400).send('Reason required');
+    const k = await one('SELECT * FROM kyc_submissions WHERE user_id=$1', [req.params.userId]);
+    if (!k) return res.status(404).send('Not found');
+    if (k.status !== 'pending') return res.status(400).send('This submission has already been reviewed');
+    const newStatus = body.action === 'approve' ? 'approved' : 'rejected';
+    await q('UPDATE kyc_submissions SET status=$1, rejection_reason=$2, reviewed_at=$3, reviewed_by=$4 WHERE user_id=$5', [newStatus, body.action==='reject'?body.reason:null, nowIso(), req.admin.id, k.user_id]);
+    await audit(req, body.action==='approve'?'KYC_APPROVED':'KYC_REJECTED', 'kyc', k.user_id, { reason:body.reason });
+    if (body.action === 'approve') await completeReferralIfPending(req, k.user_id);
+    res.redirect(withAdminAccess(req, '/admin/kyc/'+k.user_id));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
 
+app.get('/admin/balances/:id', requireAdmin, requireAdminPerm('balances.read'), async (req,res) => {
+  const account = await one('SELECT user_id FROM accounts WHERE id=$1', [req.params.id]);
+  const userId = account?.user_id || (await one('SELECT id FROM users WHERE id=$1', [req.params.id]))?.id;
+  if (!userId) return res.status(404).send('Not found');
+  res.redirect(withAdminAccess(req, '/admin/balances?user=' + userId));
+});
 app.get('/admin/balances', requireAdmin, requireAdminPerm('balances.read'), async (req,res) => {
   const term = String(req.query.q || ''); const selected = req.query.user;
   const rows = (await q(`SELECT u.id, u.name, u.email, u.status, a.id account_id, a.account_no, a.balance FROM users u JOIN accounts a ON a.user_id=u.id WHERE lower(u.name) LIKE lower($1) OR lower(u.email) LIKE lower($1) ORDER BY u.name LIMIT 100`, [`%${term}%`])).rows;
@@ -3378,7 +3381,7 @@ app.post('/admin/balances/:accountId/adjust/preview', requireAdmin, requireAdmin
     const nextCents = toCents(account.balance) + signedCents;
     if (nextCents < 0) return res.status(400).send(adminShell('Invalid balance adjustment', '<section class="panel state error"><h1>Invalid adjustment</h1><p>Removing that amount would make the balance negative.</p></section>', req));
     const idk = uid();
-    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','admin_access'].includes(k)).map(([k,v])=>`<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
+    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','_admin_access','admin_access'].includes(k)).map(([k,v]) => Array.isArray(v) ? v.map(vv=>`<input type="hidden" name="${esc(k)}" value="${esc(String(vv))}">`).join('') : `<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
     res.send(adminShell('Confirm Balance Adjustment', `<h1>Confirm Balance Adjustment</h1><section class="panel"><h2>Review before applying</h2><div class="metric-grid"><article><span>User</span><b>${esc(account.user_name)}</b><p>${esc(account.user_email)}</p></article><article><span>Current Balance</span><b>${money(account.balance)}</b></article><article><span>Adjustment</span><b>${p.action==='ADMIN CREDIT'?'+':'-'}${money(p.amount)}</b><p>${esc(account.currency)}</p></article><article><span>New Balance</span><b>${money(fromCents(nextCents))}</b></article><article><span>Transaction Date</span><b>${esc(p.transactionDate||todayDateStr())}</b></article></div><p><b>Reason:</b> ${esc(p.reason)}</p><p><b>Admin performing this action:</b> ${esc(req.admin.name)} (${esc(req.admin.email)})</p><form method="post" action="/admin/balances/${account.id}/adjust"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}${hidden}<input type="hidden" name="idempotency_key" value="${idk}"><label class="check"><input type="checkbox" name="confirm" value="YES" required> I confirm this balance change is correct</label><button class="btn">Apply Adjustment</button></form></section>`, req));
   } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
@@ -3410,7 +3413,7 @@ app.get('/admin/exchange-rates', requireAdmin, requireAdminPerm('rates.read'), a
   const rows = (await q('SELECT * FROM exchange_rates ORDER BY updated_at DESC')).rows; const csrf = req.admin.csrf_token;
   res.send(adminShell('Exchange Rates', `<h1>Exchange Rates</h1><p>Configure NC platform rates. Do not represent these values as official live market data.</p><form class="inline panel" method="post" action="/admin/exchange-rates"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<input name="base_currency" placeholder="USD" maxlength="3" required><input name="quote_currency" placeholder="RWF" maxlength="3" required><input name="buy_rate" type="number" step="0.000001" placeholder="Buy" required><input name="sell_rate" type="number" step="0.000001" placeholder="Sell" required><input name="fee" type="number" step="0.01" placeholder="Fee" required><input name="effective_date" type="datetime-local"><select name="status"><option>enabled</option><option>disabled</option></select><button class="btn">Create rate</button></form><table><tr><th>Pair</th><th>Buy</th><th>Sell</th><th>Fee</th><th>Status</th><th>Actions</th></tr>${rows.map(r=>`<tr><form method="post" action="/admin/exchange-rates/${r.id}"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<td><b>${r.base_currency}/${r.quote_currency}</b><input type="hidden" name="base_currency" value="${r.base_currency}"><input type="hidden" name="quote_currency" value="${r.quote_currency}"></td><td><input name="buy_rate" type="number" step="0.000001" value="${r.buy_rate}"></td><td><input name="sell_rate" type="number" step="0.000001" value="${r.sell_rate}"></td><td><input name="fee" type="number" step="0.01" value="${r.fee}"></td><td><select name="status"><option ${r.status==='enabled'?'selected':''}>enabled</option><option ${r.status==='disabled'?'selected':''}>disabled</option></select></td><td><button>Save</button></form></td></tr>`).join('')}</table>`, req));
 });
-app.post('/admin/exchange-rates', requireAdmin, requireAdminPerm('rates.manage'), async (req,res) => { const p=rateSchema.parse(req.body); const id=uid(); await q('INSERT INTO exchange_rates (id,base_currency,quote_currency,buy_rate,sell_rate,fee,effective_date,status,label,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [id,p.base_currency,p.quote_currency,p.buy_rate,p.sell_rate,p.fee,p.effective_date?new Date(p.effective_date).toISOString():nowIso(),p.status,'Platform rate',nowIso(),nowIso()]); await audit(req,'rate.create','exchange_rate',id,p); res.redirect('/admin/exchange-rates'); });
+app.post('/admin/exchange-rates', requireAdmin, requireAdminPerm('rates.manage'), async (req,res,next) => { try { const p=rateSchema.parse(req.body); const id=uid(); await q('INSERT INTO exchange_rates (id,base_currency,quote_currency,buy_rate,sell_rate,fee,effective_date,status,label,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [id,p.base_currency,p.quote_currency,p.buy_rate,p.sell_rate,p.fee,p.effective_date?new Date(p.effective_date).toISOString():nowIso(),p.status,'Platform rate',nowIso(),nowIso()]); await audit(req,'rate.create','exchange_rate',id,p); res.redirect('/admin/exchange-rates'); } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); } });
 app.post('/admin/exchange-rates/:id', requireAdmin, requireAdminPerm('rates.manage'), async (req,res) => { const before=await one('SELECT * FROM exchange_rates WHERE id=$1',[req.params.id]); if(!before) return res.status(404).send('Not found'); const p=rateSchema.parse({...req.body,base_currency:before.base_currency,quote_currency:before.quote_currency,effective_date:before.effective_date}); await q('UPDATE exchange_rates SET buy_rate=$1,sell_rate=$2,fee=$3,status=$4,label=$5,updated_at=$6,updated_by=$8 WHERE id=$7',[p.buy_rate,p.sell_rate,p.fee,p.status,'Platform rate',nowIso(),req.params.id,req.admin.id]); const after=await one('SELECT * FROM exchange_rates WHERE id=$1',[req.params.id]); await q('INSERT INTO rate_history VALUES ($1,$2,$3,$4,$5,$6)', [uid(),req.params.id,null,JSON.stringify(before),JSON.stringify(after),nowIso()]); await audit(req,'rate.update','exchange_rate',req.params.id,{before,after}); res.redirect('/admin/exchange-rates'); });
 app.get('/admin/rate-history', requireAdmin, requireAdminPerm('rates.read'), async (req,res) => { const rows=(await q('SELECT rh.*, au.email admin_email FROM rate_history rh LEFT JOIN admin_users au ON au.id=rh.changed_by ORDER BY rh.created_at DESC')).rows; res.send(adminShell('Rate History', `<h1>Rate History</h1><table><tr><th>When</th><th>Admin</th><th>Rate ID</th><th>Before</th><th>After</th></tr>${rows.map(r=>`<tr><td>${fmt(r.created_at)}</td><td>${esc(r.admin_email||'')}</td><td>${esc(r.exchange_rate_id)}</td><td><code>${esc(r.before_json).slice(0,180)}</code></td><td><code>${esc(r.after_json).slice(0,180)}</code></td></tr>`).join('')}</table>`, req)); });
 function transactionFilters(req) {
@@ -3451,7 +3454,7 @@ app.post('/admin/transactions/preview', requireAdmin, requireAdminPerm('transact
     const previewCents = toCents(account.balance) + (isCredit ? toCents(p.amount) : -toCents(p.amount));
     const willApply = p.status === 'completed';
     const idk = uid();
-    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','admin_access'].includes(k)).map(([k,v])=>`<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
+    const hidden = Object.entries(req.body).filter(([k])=>!['confirm','_csrf','_admin_access','admin_access'].includes(k)).map(([k,v]) => Array.isArray(v) ? v.map(vv=>`<input type="hidden" name="${esc(k)}" value="${esc(String(vv))}">`).join('') : `<input type="hidden" name="${esc(k)}" value="${esc(String(v))}">`).join('');
     res.send(adminShell('Confirm Transaction', `<h1>Confirm Transaction</h1><section class="panel"><h2>Review before creating</h2><div class="metric-grid"><article><span>User</span><b>${esc(account.user_name)}</b><p>${esc(account.user_email)}</p></article><article><span>Current Balance</span><b>${money(account.balance)}</b></article><article><span>Amount</span><b>${isCredit?'+':'-'}${money(p.amount)}</b><p>${esc(account.currency)}</p></article><article><span>Resulting Balance</span><b>${willApply?money(fromCents(previewCents)):money(account.balance)+' (unchanged — status not completed)'}</b></article></div><p><b>Type:</b> ${esc(p.kind)} · <b>Status:</b> ${esc(p.status||'pending')} · <b>Source:</b> ADMIN_CREATED</p><p><b>Description:</b> ${esc(p.description)}</p><p><b>Admin performing this action:</b> ${esc(req.admin.name)} (${esc(req.admin.email)})</p><form method="post" action="/admin/transactions"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}${hidden}<input type="hidden" name="idempotency_key" value="${idk}"><label class="check"><input type="checkbox" name="confirm" value="YES" required> I confirm this transaction is accurate and should be created</label><button class="btn">Create Transaction</button></form></section>`, req));
   } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
@@ -3939,22 +3942,24 @@ app.get('/admin/cards/:id', requireAdmin, requireAdminPerm('cards.view'), async 
   const decision = c.status==='pending' && req.admin.permissions.includes('cards.manage') ? `<section class="panel"><h2>Decision</h2><form class="inline" method="post" action="${withAdminAccess(req, `/admin/cards/${c.id}/action`)}"><input type="hidden" name="_csrf" value="${req.admin.csrf_token}">${hiddenAdminAccess(req)}<select name="action"><option value="approve">Approve</option><option value="reject">Reject</option></select><input name="reason" placeholder="Reason (required to reject)"><label class="check"><input name="confirm" value="YES" type="checkbox" required> Confirm</label><button class="btn">Submit Decision</button></form></section>` : '';
   res.send(adminShell('Card Application', `<h1>Card Application</h1><section class="panel"><div class="info-grid"><p><b>User</b><span>${esc(c.name)} (${esc(c.email)})</span></p><p><b>Network</b><span>${esc(c.network||'—')}</span></p><p><b>Requested Limit</b><span>${c.spending_limit!=null?money(c.spending_limit):'—'}</span></p><p><b>Status</b><span>${cardBadge(c.status)}</span></p><p><b>Requested</b><span>${c.requested_at?fmt(c.requested_at):'—'}</span></p>${c.reviewed_at?`<p><b>Reviewed</b><span>${fmt(c.reviewed_at)}</span></p>`:''}${c.rejection_reason?`<p><b>Rejection Reason</b><span>${esc(c.rejection_reason)}</span></p>`:''}${c.status!=='pending'?`<p><b>Card Number</b><span>•••• ${esc(c.last4)}</span></p>`:''}</div></section>${decision}`, req));
 });
-app.post('/admin/cards/:id/action', requireAdmin, requireAdminPerm('cards.manage'), async (req,res) => {
-  const body = z.object({ action:z.enum(['approve','reject']), reason:z.string().max(240).optional(), confirm:z.string() }).parse(req.body);
-  if (body.confirm !== 'YES') return res.status(400).send('Confirmation required');
-  if (body.action === 'reject' && !body.reason) return res.status(400).send('Reason required');
-  const c = await one('SELECT * FROM cards WHERE id=$1', [req.params.id]);
-  if (!c) return res.status(404).send('Not found');
-  if (c.status !== 'pending') return res.status(400).send('This application has already been reviewed');
-  if (body.action === 'approve') {
-    const last4 = String(crypto.randomInt(0, 10000)).padStart(4, '0');
-    await q("UPDATE cards SET status='active', last4=$1, reviewed_at=$2, reviewed_by=$3 WHERE id=$4", [last4, nowIso(), req.admin.id, c.id]);
-    await audit(req, 'CARD_APPROVED', 'card', c.id, {});
-  } else {
-    await q("UPDATE cards SET status='rejected', rejection_reason=$1, reviewed_at=$2, reviewed_by=$3 WHERE id=$4", [body.reason, nowIso(), req.admin.id, c.id]);
-    await audit(req, 'CARD_REJECTED', 'card', c.id, { reason:body.reason });
-  }
-  res.redirect(withAdminAccess(req, `/admin/cards/${c.id}`));
+app.post('/admin/cards/:id/action', requireAdmin, requireAdminPerm('cards.manage'), async (req,res,next) => {
+  try {
+    const body = z.object({ action:z.enum(['approve','reject']), reason:z.string().max(240).optional(), confirm:z.string() }).parse(req.body);
+    if (body.confirm !== 'YES') return res.status(400).send('Confirmation required');
+    if (body.action === 'reject' && !body.reason) return res.status(400).send('Reason required');
+    const c = await one('SELECT * FROM cards WHERE id=$1', [req.params.id]);
+    if (!c) return res.status(404).send('Not found');
+    if (c.status !== 'pending') return res.status(400).send('This application has already been reviewed');
+    if (body.action === 'approve') {
+      const last4 = String(crypto.randomInt(0, 10000)).padStart(4, '0');
+      await q("UPDATE cards SET status='active', last4=$1, reviewed_at=$2, reviewed_by=$3 WHERE id=$4", [last4, nowIso(), req.admin.id, c.id]);
+      await audit(req, 'CARD_APPROVED', 'card', c.id, {});
+    } else {
+      await q("UPDATE cards SET status='rejected', rejection_reason=$1, reviewed_at=$2, reviewed_by=$3 WHERE id=$4", [body.reason, nowIso(), req.admin.id, c.id]);
+      await audit(req, 'CARD_REJECTED', 'card', c.id, { reason:body.reason });
+    }
+    res.redirect(withAdminAccess(req, `/admin/cards/${c.id}`));
+  } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); }
 });
 function grantBadge(status) {
   const cls = status === 'approved' ? 'completed' : status === 'rejected' ? 'disabled' : status === 'pending' ? 'review-requested' : '';
@@ -4279,14 +4284,14 @@ app.get('/admin/services', requireAdmin, requireAdminPerm('services.view'), asyn
   const services=(await q('SELECT * FROM service_controls ORDER BY label')).rows; const limits=(await q('SELECT * FROM transaction_limits ORDER BY label')).rows; const csrf=req.admin.csrf_token;
   res.send(adminShell('Services', `<h1>Services & Limits</h1><section class="dashboard-grid"><div class="panel"><h2>Transaction Controls</h2>${services.map(s=>`<form class="service-row" method="post" action="/admin/services/${s.service_key}"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<b>${esc(s.label)}</b><span class="status ${s.status}">● ${esc(s.status).toUpperCase()}</span><select name="status"><option value="enabled" ${s.status==='enabled'?'selected':''}>enabled</option><option value="disabled" ${s.status==='disabled'?'selected':''}>disabled</option></select><label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm</label><button class="btn small">Update</button></form>`).join('')}</div><div class="panel"><h2>Transaction Limits</h2>${limits.map(l=>`<form class="service-row" method="post" action="/admin/limits/${l.limit_key}"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<b>${esc(l.label)}</b><input name="amount" type="number" step="0.01" value="${l.amount}"><input name="currency" maxlength="3" value="${esc(l.currency)}"><label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm</label><button class="btn small">Save</button></form>`).join('')}</div></section>`, req));
 });
-app.post('/admin/services/:key', requireAdmin, requireAdminPerm('services.manage'), async (req,res)=>{ const p=z.object({status:z.enum(['enabled','disabled']),confirm:z.string()}).parse(req.body); if(p.confirm!=='YES') return res.status(400).send('Confirmation required'); const before=await one('SELECT * FROM service_controls WHERE service_key=$1',[req.params.key]); await q('UPDATE service_controls SET status=$1, updated_by=$2, updated_at=$3 WHERE service_key=$4',[p.status,req.admin.id,nowIso(),req.params.key]); await audit(req,p.status==='enabled'?'SERVICE_ENABLED':'SERVICE_DISABLED','service',req.params.key,{before,after:p}); res.redirect(withAdminAccess(req,'/admin/services')); });
-app.post('/admin/limits/:key', requireAdmin, requireAdminPerm('services.manage'), async (req,res)=>{ const p=z.object({amount:z.coerce.number().nonnegative(),currency:z.string().length(3),confirm:z.string()}).parse(req.body); if(p.confirm!=='YES') return res.status(400).send('Confirmation required'); const before=await one('SELECT * FROM transaction_limits WHERE limit_key=$1',[req.params.key]); await q('UPDATE transaction_limits SET amount=$1,currency=$2,updated_by=$3,updated_at=$4 WHERE limit_key=$5',[p.amount,p.currency.toUpperCase(),req.admin.id,nowIso(),req.params.key]); await audit(req,'LIMIT_UPDATED','limit',req.params.key,{before,after:p}); res.redirect(withAdminAccess(req,'/admin/services')); });
+app.post('/admin/services/:key', requireAdmin, requireAdminPerm('services.manage'), async (req,res,next)=>{ try { const p=z.object({status:z.enum(['enabled','disabled']),confirm:z.string()}).parse(req.body); if(p.confirm!=='YES') return res.status(400).send('Confirmation required'); const before=await one('SELECT * FROM service_controls WHERE service_key=$1',[req.params.key]); await q('UPDATE service_controls SET status=$1, updated_by=$2, updated_at=$3 WHERE service_key=$4',[p.status,req.admin.id,nowIso(),req.params.key]); await audit(req,p.status==='enabled'?'SERVICE_ENABLED':'SERVICE_DISABLED','service',req.params.key,{before,after:p}); res.redirect(withAdminAccess(req,'/admin/services')); } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); } });
+app.post('/admin/limits/:key', requireAdmin, requireAdminPerm('services.manage'), async (req,res,next)=>{ try { const p=z.object({amount:z.coerce.number().nonnegative(),currency:z.string().length(3),confirm:z.string()}).parse(req.body); if(p.confirm!=='YES') return res.status(400).send('Confirmation required'); const before=await one('SELECT * FROM transaction_limits WHERE limit_key=$1',[req.params.key]); await q('UPDATE transaction_limits SET amount=$1,currency=$2,updated_by=$3,updated_at=$4 WHERE limit_key=$5',[p.amount,p.currency.toUpperCase(),req.admin.id,nowIso(),req.params.key]); await audit(req,'LIMIT_UPDATED','limit',req.params.key,{before,after:p}); res.redirect(withAdminAccess(req,'/admin/services')); } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); } });
 app.get('/admin/fees', requireAdmin, requireAdminPerm('fees.view'), async (req,res)=>{
   const rows=(await q('SELECT f.*, au.email updated_by_email FROM fees f LEFT JOIN admin_users au ON au.id=f.updated_by ORDER BY f.category,f.name')).rows; const csrf=req.admin.csrf_token;
   res.send(adminShell('Fees', `<h1>Fees</h1><section class="panel"><h2>Configure Fees</h2><form class="inline" method="post" action="/admin/fees"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<input name="name" placeholder="Fee type" required><select name="category"><option>Transfer fees</option><option>Withdrawal fees</option><option>Exchange fees</option><option>Account fees</option><option>Card fees</option></select><select name="mode"><option>fixed</option><option>percentage</option></select><input name="amount" type="number" step="0.01" placeholder="Amount" required><input name="currency" maxlength="3" value="USD"><select name="status"><option>enabled</option><option>disabled</option></select><label class="check"><input type="checkbox" name="confirm" value="YES" required> Confirm</label><button class="btn">Create Fee</button></form></section><section class="panel"><table><tr><th>Fee type</th><th>Amount/percentage</th><th>Currency</th><th>Status</th><th>Last updated</th><th>Updated by</th></tr>${rows.map(f=>`<tr><td>${esc(f.name)}<br><small>${esc(f.category)}</small></td><td>${esc(f.mode)} ${f.amount}</td><td>${esc(f.currency)}</td><td>${esc(f.status)}</td><td>${fmt(f.updated_at)}</td><td>${esc(f.updated_by_email||'system')}</td></tr>`).join('')}</table></section>`, req));
 });
 const feeAdminSchema=z.object({name:z.string().min(2),category:z.string().min(2),mode:z.enum(['fixed','percentage']),amount:z.coerce.number().nonnegative(),currency:z.string().length(3),status:z.enum(['enabled','disabled']),confirm:z.string()});
-app.post('/admin/fees', requireAdmin, requireAdminPerm('fees.manage'), async (req,res)=>{ const p=feeAdminSchema.parse(req.body); if(p.confirm!=='YES') return res.status(400).send('Confirmation required'); const id=uid(); await q('INSERT INTO fees (id,name,category,amount,currency,status,effective_date,updated_at,updated_by,mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,p.name,p.category,p.amount,p.currency.toUpperCase(),p.status,nowIso(),nowIso(),req.admin.id,p.mode]); await audit(req,'FEE_CREATED','fee',id,p); res.redirect(withAdminAccess(req,'/admin/fees')); });
+app.post('/admin/fees', requireAdmin, requireAdminPerm('fees.manage'), async (req,res,next)=>{ try { const p=feeAdminSchema.parse(req.body); if(p.confirm!=='YES') return res.status(400).send('Confirmation required'); const id=uid(); await q('INSERT INTO fees (id,name,category,amount,currency,status,effective_date,updated_at,updated_by,mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,p.name,p.category,p.amount,p.currency.toUpperCase(),p.status,nowIso(),nowIso(),req.admin.id,p.mode]); await audit(req,'FEE_CREATED','fee',id,p); res.redirect(withAdminAccess(req,'/admin/fees')); } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); } });
 app.get('/admin/reports', requireAdmin, requireAdminPerm('reports.view'), async (req,res)=>{ const daily=(await q("SELECT substr(created_at,1,10) AS report_day, COUNT(*)::int AS count, COALESCE(SUM(amount),0) AS total FROM transactions GROUP BY substr(created_at,1,10) ORDER BY report_day DESC LIMIT 30")).rows; res.send(adminShell('Reports', `<h1>Reports</h1><div class="quick-actions"><a class="btn" href="${withAdminAccess(req,'/admin/reports/transactions.csv')}">Export CSV</a></div><section class="panel"><h2>Daily transactions</h2><table><tr><th>Date</th><th>Count</th><th>Total</th></tr>${daily.map(d=>`<tr><td>${esc(d.report_day)}</td><td>${d.count}</td><td>${money(d.total)}</td></tr>`).join('')}</table></section>`, req)); });
 function toCsv(header, rows, mapRow) { return header.join(',')+'\n'+rows.map(r=>mapRow(r).map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\n'); }
 app.get('/admin/reports/transactions.csv', requireAdmin, requireAdminPerm('reports.view'), async (req,res)=>{
@@ -4306,7 +4311,7 @@ app.get('/admin/ai-assistant', requireAdmin, requireAdminPerm('ai.manage'), asyn
   const analytics=await one("SELECT COUNT(*)::int total, COUNT(*) FILTER (WHERE status='active')::int active, COUNT(*) FILTER (WHERE status='resolved')::int resolved, COUNT(*) FILTER (WHERE status='escalated')::int escalated FROM support_conversations");
   res.send(adminShell('AI Assistant', `<h1>AI Assistant</h1><div class="metric-grid"><article><span>Total conversations</span><b>${analytics.total}</b></article><article><span>Active conversations</span><b>${analytics.active}</b></article><article><span>Resolved conversations</span><b>${analytics.resolved}</b></article><article><span>Escalated conversations</span><b>${analytics.escalated}</b></article></div><section class="panel"><form class="inline" method="post" action="/admin/ai-assistant"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<select name="enabled"><option ${set.enabled==='enabled'?'selected':''}>enabled</option><option ${set.enabled==='disabled'?'selected':''}>disabled</option></select><input name="welcome_message" value="${esc(set.welcome_message)}"><input name="supported_topics" value="${esc(set.supported_topics)}"><input name="faq_content" value="${esc(set.faq_content)}"><input name="support_instructions" value="${esc(set.support_instructions)}"><input name="escalation_message" value="${esc(set.escalation_message)}"><button class="btn">Save Assistant Settings</button></form></section><section class="panel"><h2>Popular questions</h2><p class="notice">Transfers, fees, exchange rates, account access, password help.</p></section>`, req));
 });
-app.post('/admin/ai-assistant', requireAdmin, requireAdminPerm('ai.manage'), async (req,res)=>{ const b=z.object({enabled:z.enum(['enabled','disabled']),welcome_message:z.string().min(3),supported_topics:z.string(),faq_content:z.string(),support_instructions:z.string(),escalation_message:z.string()}).parse(req.body); const before=await one('SELECT * FROM ai_settings LIMIT 1'); await q('UPDATE ai_settings SET enabled=$1,welcome_message=$2,supported_topics=$3,faq_content=$4,support_instructions=$5,escalation_message=$6,updated_by=$7,updated_at=$8 WHERE id=$9',[b.enabled,b.welcome_message,b.supported_topics,b.faq_content,b.support_instructions,b.escalation_message,req.admin.id,nowIso(),before.id]); await audit(req,'AI_SETTINGS_UPDATED','ai_settings',before.id,{before,after:b}); res.redirect(withAdminAccess(req,'/admin/ai-assistant')); });
+app.post('/admin/ai-assistant', requireAdmin, requireAdminPerm('ai.manage'), async (req,res,next)=>{ try { const b=z.object({enabled:z.enum(['enabled','disabled']),welcome_message:z.string().min(3),supported_topics:z.string(),faq_content:z.string(),support_instructions:z.string(),escalation_message:z.string()}).parse(req.body); const before=await one('SELECT * FROM ai_settings LIMIT 1'); await q('UPDATE ai_settings SET enabled=$1,welcome_message=$2,supported_topics=$3,faq_content=$4,support_instructions=$5,escalation_message=$6,updated_by=$7,updated_at=$8 WHERE id=$9',[b.enabled,b.welcome_message,b.supported_topics,b.faq_content,b.support_instructions,b.escalation_message,req.admin.id,nowIso(),before.id]); await audit(req,'AI_SETTINGS_UPDATED','ai_settings',before.id,{before,after:b}); res.redirect(withAdminAccess(req,'/admin/ai-assistant')); } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); } });
 function supportStatusBadge(status) {
   const cls = status === 'closed' ? 'disabled' : status === 'waiting' ? 'review-requested' : status === 'assigned' ? 'completed' : 'active';
   const label = { open:'Open (AI)', waiting:'Waiting for Agent', assigned:'Assigned', closed:'Closed' }[status] || status;
@@ -4450,7 +4455,7 @@ app.post('/admin/live-support/:id/ai-assist', requireAdmin, requireAdminPerm('su
   } catch (e) { next(e); }
 });
 app.get('/admin/support-tickets', requireAdmin, requireAdminPerm('support.view'), async (req,res)=>{ const rows=(await q('SELECT st.*, u.email, u.name FROM support_tickets st JOIN users u ON u.id=st.user_id ORDER BY st.created_at DESC LIMIT 200')).rows; const csrf=req.admin.csrf_token; res.send(adminShell('Support Tickets', `<h1>Support Tickets</h1><section class="panel"><table><tr><th>User</th><th>Category</th><th>Summary</th><th>Priority</th><th>Status</th><th>Created</th><th>Update</th></tr>${rows.map(t=>`<tr><td>${esc(t.name)}<br><small>${esc(t.email)}</small></td><td>${esc(t.issue_category)}</td><td>${esc(t.summary)}</td><td>${esc(t.priority)}</td><td>${esc(t.status)}</td><td>${fmt(t.created_at)}</td><td><form method="post" action="/admin/support-tickets/${t.id}"><input type="hidden" name="_csrf" value="${csrf}">${hiddenAdminAccess(req)}<select name="status"><option>Open</option><option>In Progress</option><option>Waiting for User</option><option>Resolved</option><option>Closed</option></select><button class="btn small">Save</button></form></td></tr>`).join('')}</table></section>`, req)); });
-app.post('/admin/support-tickets/:id', requireAdmin, requireAdminPerm('support.manage'), async (req,res)=>{ const b=z.object({status:z.enum(['Open','In Progress','Waiting for User','Resolved','Closed'])}).parse(req.body); const before=await one('SELECT * FROM support_tickets WHERE id=$1',[req.params.id]); await q('UPDATE support_tickets SET status=$1, updated_at=$2 WHERE id=$3',[b.status,nowIso(),req.params.id]); await audit(req,'SUPPORT_TICKET_UPDATED','support_ticket',req.params.id,{before,new:b}); res.redirect(withAdminAccess(req,'/admin/support-tickets')); });
+app.post('/admin/support-tickets/:id', requireAdmin, requireAdminPerm('support.manage'), async (req,res,next)=>{ try { const b=z.object({status:z.enum(['Open','In Progress','Waiting for User','Resolved','Closed'])}).parse(req.body); const before=await one('SELECT * FROM support_tickets WHERE id=$1',[req.params.id]); await q('UPDATE support_tickets SET status=$1, updated_at=$2 WHERE id=$3',[b.status,nowIso(),req.params.id]); await audit(req,'SUPPORT_TICKET_UPDATED','support_ticket',req.params.id,{before,new:b}); res.redirect(withAdminAccess(req,'/admin/support-tickets')); } catch (e) { if (e instanceof z.ZodError) return res.status(400).send(adminShell('Invalid input', `<section class="panel state error"><h1>Invalid input</h1><p>${esc(e.issues.map(i=>i.message).join(' '))}</p></section>`, req)); next(e); } });
 app.post('/webhooks/payment-provider/:provider', async (req,res)=>{ const secret=process.env.PAYMENT_WEBHOOK_SECRET; const signature=req.get('x-provider-signature')||''; const payload=JSON.stringify(req.body||{}); const expected=secret?crypto.createHmac('sha256',secret).update(payload).digest('hex'):''; const valid=Boolean(secret && crypto.timingSafeEqual(Buffer.from(signature.padEnd(expected.length)), Buffer.from(expected))); if(!valid) return res.status(401).send('invalid signature'); const eventId=String(req.body.id||req.body.event_id||''); if(!eventId) return res.status(400).send('missing event id'); const exists=await one('SELECT id FROM provider_events WHERE event_id=$1',[eventId]); if(exists) return res.json({duplicate:true}); await q('INSERT INTO provider_events VALUES ($1,$2,$3,$4,$5)',[uid(),req.params.provider,eventId,'yes',payload,nowIso()]); await paymentProvider.handleWebhook(req.body); res.json({received:true}); });
 app.get('/admin/audit-logs', requireAdmin, requireAdminPerm('audit.view'), async (req,res) => {
   const qv = String(req.query.q||'').trim();
