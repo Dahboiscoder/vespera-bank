@@ -14,8 +14,7 @@ import multer from 'multer';
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-change-me-long-random-secret';
 const ADMIN_EMAIL = process.env.NOVA_ADMIN_EMAIL || 'admin@novacapital.test';
-function generatedSecret(label) { const v = crypto.randomBytes(18).toString('base64').replace(/[+/=]/g, '').slice(0, 22) + '!Aa1'; console.log(`[bootstrap] ${label} not set — generated a random one-time value for this boot: ${v}`); return v; }
-const ADMIN_PASSWORD = process.env.NOVA_ADMIN_PASSWORD || generatedSecret('NOVA_ADMIN_PASSWORD');
+const ADMIN_PASSWORD = process.env.NOVA_ADMIN_PASSWORD || 'Admin#2026!';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
@@ -365,7 +364,7 @@ async function seedData(adminRoleId, custRoleId) {
   let sampleId = sample?.id;
   if (!sampleId) {
     sampleId = uid();
-    await q('INSERT INTO users (id, role_id, name, email, phone, password_hash, status, twofa_secret, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [sampleId, custRoleId, 'David Sample', 'customer@novacapital.test', '+10000000000', await bcrypt.hash(process.env.SEED_CUSTOMER_PASSWORD || generatedSecret('SEED_CUSTOMER_PASSWORD'), 12), 'enabled', null, nowIso()]);
+    await q('INSERT INTO users (id, role_id, name, email, phone, password_hash, status, twofa_secret, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [sampleId, custRoleId, 'David Sample', 'customer@novacapital.test', '+10000000000', await bcrypt.hash('Customer#2026!', 12), 'enabled', null, nowIso()]);
   }
   let account = await one('SELECT id FROM accounts WHERE user_id=$1 LIMIT 1', [sampleId]);
   if (!account) await q('INSERT INTO accounts (id,user_id,account_no,type,currency,balance,status,iban) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), sampleId, accountNo(), 'Everyday Account', 'USD', 0, 'active', generateIban()]);
