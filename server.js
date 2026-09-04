@@ -12,9 +12,14 @@ import twilio from 'twilio';
 import multer from 'multer';
 
 const PORT = process.env.PORT || 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-change-me-long-random-secret';
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(48).toString('hex');
 const ADMIN_EMAIL = process.env.NOVA_ADMIN_EMAIL || 'admin@novacapital.test';
-const ADMIN_PASSWORD = process.env.NOVA_ADMIN_PASSWORD || 'Admin#2026!';
+function generatedBootstrapSecret(label) {
+  const value = `${crypto.randomBytes(24).toString('base64url')}!Aa1`;
+  console.warn(`[security] ${label} is not configured. A random bootstrap password was generated for this deployment: ${value}`);
+  return value;
+}
+const ADMIN_PASSWORD = process.env.NOVA_ADMIN_PASSWORD || generatedBootstrapSecret('NOVA_ADMIN_PASSWORD');
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
@@ -358,11 +363,27 @@ async function getUserControls(userId) {
 async function seedData(adminRoleId, custRoleId) {
   const existingAdmin = await one('SELECT id FROM admin_users WHERE email=$1', [ADMIN_EMAIL]);
   if (!existingAdmin) await q('INSERT INTO admin_users VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), adminRoleId, 'Vespera Bank Administrator', ADMIN_EMAIL, await bcrypt.hash(ADMIN_PASSWORD, 12), 'enabled', nowIso(), null]);
+  else {
+    const adminCredential = await one('SELECT id,password_hash FROM admin_users WHERE id=$1', [existingAdmin.id]);
+    if (adminCredential && await bcrypt.compare('Admin#2026!', adminCredential.password_hash)) {
+      await q('UPDATE admin_users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(ADMIN_PASSWORD, 12), adminCredential.id]);
+      await q('DELETE FROM admin_sessions WHERE admin_user_id=$1', [adminCredential.id]);
+      console.warn('[security] Rotated the exposed seeded administrator password and revoked its sessions.');
+    }
+  }
   const sample = await one('SELECT id FROM users WHERE email=$1', ['customer@novacapital.test']);
   let sampleId = sample?.id;
   if (!sampleId) {
     sampleId = uid();
-    await q('INSERT INTO users (id, role_id, name, email, phone, password_hash, status, twofa_secret, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [sampleId, custRoleId, 'David Sample', 'customer@novacapital.test', '+10000000000', await bcrypt.hash('Customer#2026!', 12), 'enabled', null, nowIso()]);
+    await q('INSERT INTO users (id, role_id, name, email, phone, password_hash, status, twofa_secret, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [sampleId, custRoleId, 'David Sample', 'customer@novacapital.test', '+10000000000', await bcrypt.hash(process.env.SEED_CUSTOMER_PASSWORD || generatedBootstrapSecret('SEED_CUSTOMER_PASSWORD'), 12), 'enabled', null, nowIso()]);
+  } else {
+    const sampleCredential = await one('SELECT id,password_hash FROM users WHERE id=$1', [sampleId]);
+    if (sampleCredential && await bcrypt.compare('Customer#2026!', sampleCredential.password_hash)) {
+      const replacement = process.env.SEED_CUSTOMER_PASSWORD || generatedBootstrapSecret('SEED_CUSTOMER_PASSWORD');
+      await q('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(replacement, 12), sampleCredential.id]);
+      await q('DELETE FROM sessions WHERE user_id=$1', [sampleCredential.id]);
+      console.warn('[security] Rotated the exposed seeded customer password and revoked its sessions.');
+    }
   }
   let account = await one('SELECT id FROM accounts WHERE user_id=$1 LIMIT 1', [sampleId]);
   if (!account) await q('INSERT INTO accounts (id,user_id,account_no,type,currency,balance,status,iban) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [uid(), sampleId, accountNo(), 'Everyday Account', 'USD', 0, 'active', generateIban()]);
