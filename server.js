@@ -35,6 +35,7 @@ const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
 if (!DATABASE_URL) throw new Error('DATABASE_URL is required — set it to a Postgres connection string (e.g. from Neon).');
 const dbPool = new pg.Pool({ connectionString: DATABASE_URL, ssl: DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false } });
+dbPool.on('error', (err) => { console.error('Idle database client error (pool recovers automatically):', err.message); });
 let txClient = null; // set while a BEGIN...COMMIT/ROLLBACK block from exec() is in progress
 const app = express();
 
@@ -4498,5 +4499,6 @@ app.use((err, req, res, _next) => {
 });
 
 await initDb();
-app.listen(PORT, '0.0.0.0', () => console.log(`Meridian Private & Co upgraded app listening on ${PORT}`));
+if (!process.env.VERCEL) app.listen(PORT, '0.0.0.0', () => console.log(`Meridian Private & Co upgraded app listening on ${PORT}`));
 export { app, dbPool };
+export default app;
