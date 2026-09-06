@@ -90,7 +90,7 @@ fetch('/api/rates').then(r=>r.json()).then(d=>{const el=document.getElementById(
 const fab=document.getElementById('chatFab'), panel=document.getElementById('chatPanel'), close=document.getElementById('chatClose'), form=document.getElementById('chatForm'), input=document.getElementById('chatInput'), msgs=document.getElementById('chatMessages');
 function addMsg(text,cls){ if(!msgs) return; const p=document.createElement('p'); p.className=cls; p.textContent=text; msgs.appendChild(p); msgs.scrollTop=msgs.scrollHeight; }
 if(fab&&panel){ fab.addEventListener('click',()=>{panel.hidden=false; input?.focus();}); close?.addEventListener('click',()=>{panel.hidden=true;}); }
-form?.addEventListener('submit', async e=>{ e.preventDefault(); const message=input.value.trim(); if(!message) return; addMsg(message,'me'); input.value=''; addMsg('Thinking…','bot loading'); const endpoint=location.pathname.startsWith('/dashboard')||location.pathname.startsWith('/support')?'/support/chat':'/api/chat'; try{ const r=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message})}); const data=await r.json(); msgs.querySelector('.loading')?.remove(); addMsg(data.reply || 'I can help with Vespera Bank services.','bot'); if(data.escalation){ const p=document.createElement('p'); p.className='bot'; p.innerHTML='<a class="btn small" href="/contact">Contact Support</a>'; msgs.appendChild(p); } } catch { msgs.querySelector('.loading')?.remove(); addMsg('The assistant is temporarily unavailable.','bot'); } });
+form?.addEventListener('submit', async e=>{ e.preventDefault(); const message=input.value.trim(); if(!message) return; addMsg(message,'me'); input.value=''; addMsg('Thinking…','bot loading'); const endpoint=location.pathname.startsWith('/dashboard')||location.pathname.startsWith('/support')?'/support/chat':'/api/chat'; try{ const r=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message})}); const data=await r.json(); msgs.querySelector('.loading')?.remove(); addMsg(data.reply || 'I can help with Meridian Private & Co services.','bot'); if(data.escalation){ const p=document.createElement('p'); p.className='bot'; p.innerHTML='<a class="btn small" href="/contact">Contact Support</a>'; msgs.appendChild(p); } } catch { msgs.querySelector('.loading')?.remove(); addMsg('The assistant is temporarily unavailable.','bot'); } });
 
 const heroSlider = document.getElementById('heroSlider');
 if (heroSlider) {
@@ -137,7 +137,7 @@ const shareReceiptBtn = document.getElementById('shareReceiptBtn');
 if (shareReceiptBtn && navigator.share) {
   shareReceiptBtn.hidden = false;
   shareReceiptBtn.addEventListener('click', () => {
-    navigator.share({ title: 'Vespera Bank Receipt', url: location.href }).catch(() => {});
+    navigator.share({ title: 'Meridian Private & Co Receipt', url: location.href }).catch(() => {});
   });
 }
 

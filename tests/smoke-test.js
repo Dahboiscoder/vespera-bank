@@ -4,7 +4,7 @@ const base = process.env.TEST_BASE || 'http://127.0.0.1:3000';
 const form = o => new URLSearchParams(o);
 async function text(path, opts={}) { const r=await fetch(base+path, opts); return { r, t:await r.text() }; }
 for (const p of ['/', '/personal', '/business', '/accounts', '/savings', '/cards', '/loans', '/transfers', '/fx', '/security', '/about', '/contact', '/help', '/login', '/register']) {
-  const {r,t}=await text(p); assert.equal(r.status, 200, p); assert.ok(t.includes('Vespera Bank') || t.includes('VESPERA BANK'), p);
+  const {r,t}=await text(p); assert.equal(r.status, 200, p); assert.ok(t.includes('Meridian Private & Co') || t.includes('MERIDIAN PRIVATE & CO'), p);
 }
 const fxPage = await text('/fx?from=USD&to=JPY&amount=100');
 assert.ok(fxPage.t.includes('JPY'));

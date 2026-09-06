@@ -27,11 +27,11 @@ assert.equal(r.headers.get('location'), '/login');
 
 r = await fetch(base + '/');
 html = await r.text();
-assert.ok(html.includes('Welcome to Vespera Bank'));
+assert.ok(html.includes('Welcome to Meridian Private & Co'));
 assert.ok(html.includes('Open an Account'));
 assert.ok(!html.includes('Modern bank experience'));
 assert.ok(html.includes('News & insights'));
-assert.ok(html.includes('Vespera AI Assistant'));
+assert.ok(html.includes('Meridian AI Assistant'));
 
 r = await fetch(base + '/api/chat', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ message:'cards and transfers' }) });
 assert.equal(r.status, 200);

@@ -33,7 +33,7 @@ console.log('Statement picker renders with the account selectable');
 
 r = await fetch(base + `/dashboard/statements?accountId=${myAccountId}&period=all_time&access=${access}`, { headers:{cookie} });
 html = await r.text();
-assert.ok(html.includes('VESPERA BANK') && html.includes('statement-brand'));
+assert.ok(html.includes('MERIDIAN PRIVATE & CO') && html.includes('statement-brand'));
 assert.ok(html.includes('Opening Balance'));
 assert.ok(html.includes('Closing Balance'));
 assert.ok(html.includes('$300.00'));

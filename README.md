@@ -1,6 +1,6 @@
-# Vespera Bank — Advanced Banking Simulated Platform
+# Meridian Private & Co — Advanced Banking Simulated Platform
 
-Vespera Bank is an original financial-services web application. It is inspired by the structure and professionalism of modern banking websites, but it does **not** copy, impersonate, or represent any real bank.
+Meridian Private & Co is an original financial-services web application. It is inspired by the structure and professionalism of modern banking websites, but it does **not** copy, impersonate, or represent any real bank.
 
 ## Run
 
