@@ -50,6 +50,9 @@ app.use(express.urlencoded({ extended:false, limit:'75kb' }));
 app.use(express.json({ limit:'75kb' }));
 app.use(cookieParser(SESSION_SECRET));
 app.use('/assets', express.static('public', { etag:true, maxAge:0 }));
+app.get('/robots.txt', (req,res) => {
+  res.type('text/plain').send(['User-agent: *','Disallow: /admin','Disallow: /dashboard','Disallow: /auth','Disallow: /support/chat','Disallow: /support/handoff','Disallow: /support/tickets','Disallow: /support/mode',''].join('\n'));
+});
 app.get('/set-language', (req,res) => {
   const lang = Object.keys(LANGUAGES).includes(String(req.query.lang)) ? String(req.query.lang) : 'en';
   res.cookie('lang', lang, { maxAge: 365*24*60*60*1000, sameSite:'lax' });
